@@ -1,0 +1,136 @@
+service tcp-keepalives-in
+service timestamps debug datetime msec localtime show-timezone
+service timestamps log datetime msec localtime show-timezone
+service password-encryption
+service compress-config
+
+hostname pod1r1
+
+enable secret 5 password
+
+username username privilege 15 secret password
+username username2 privilege 3 secret password2
+
+aaa new-model
+
+aaa group server tacacs+ tacacsgrp
+  server name 1.1.1.1
+  ip tacacs source-interface Loopback100
+
+aaa authentication password-prompt Passwort:
+aaa authentication username-prompt Benutzer-Name:
+aaa authentication login default group tacacsgrp local
+aaa authentication enable default group tacacsgrp enable
+aaa authorization console
+aaa authorization exec default group tacacsgrplocal
+aaa authorization commands 15 default group tacacsgrp local
+aaa accounting exec default start-stop group tacacsgrp
+aaa accounting commands 1 default start-stop group tacacsgrp
+aaa accounting commands 3 default start-stop group tacacsgrp
+aaa accounting commands 15 default start-stop group tacacsgrp
+
+aaa session-id common
+no coap http enable
+
+no ip source-route
+ip routing
+ip multicast-routing
+
+no ip domain lookup
+ip domain name DOMAIN
+
+vtp mode transparent
+udld enable
+
+
+
+flow record FLOW-REC1
+ description desc
+ match ipv4 tos
+ match ipv4 protocol
+ match ipv4 source address
+ match ipv4 destination address
+ match transport ource-port
+ match transport destination-port
+ match interface input
+ match flow direction
+ collect transport tcp flags
+ collect interface output
+ collect counter bytes long
+ collect counter packets long
+
+flow exporter FLOW-EXP
+ description desc
+ destination 1.1.1.1
+ source Loopback100
+ transport udp 9996
+ template data timeout 60
+ option sampler-table timeout 60
+
+flow monitor FLOW-MON-OUT
+ description description
+ exporter FLOW-EXP
+ record FLOW-REC
+ cache timeout inactive 5
+ cache timeout active 5
+
+flow monitor FLOW-MON-INPUT
+ description description
+ exporter FLOW-EXP
+ record FLOW-REC
+ cache timeout inactive 5
+ cache timeout active 5
+
+
+spanning-tree mode rapid-pvst
+spanning-tree portfast edge bpduguard default
+spanning-tree portfast edge bpdufilter default
+spanning-tree extend system-id
+spanning-tree uplinkfast
+
+ip tcp path-mtu-discovery
+no ip ftp passive
+ip ftp source-interface Loopback100
+ip ftp username noc
+ip ftp password password
+ip ssh source-interface Loopback100
+ip ssh logging events
+ip ssh version 2
+ip scp enable
+
+ntp server 192.168.1.1
+
+interface Loopback0
+ description iBGP LOOPBACK
+ ip address 1.1.1.1/24
+
+interface GigabitEthernet0/0
+ description UPLINK TO INTERNET PROVIDER
+ no switchport
+ no ip address
+
+interface GigabitEthernet0/1
+ description DOWNLINK POD1SW1
+ no switchport
+ no ip address
+
+interface GigabitEthernet0/2
+ description DOWNLINK POD1SW2
+ no switchport
+ no ip address
+
+interface GigabitEthernet0/7
+ description MGMT-INTERFACE
+ no switchport
+ no ip address
+
+
+router ospf 100
+ log-adjacency-changes detail
+ auto-cost reference-bandwidth 10000
+ nsf ietf
+ timers throttle spf 50 200 10000
+ timers throttle lsa 10 100 10000
+ timers lsa arrival 10000
+
+
