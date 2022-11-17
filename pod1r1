@@ -118,12 +118,13 @@ interface GigabitEthernet0/2
  description DOWNLINK POD1SW2
  no switchport
  no ip address
+ channel-group 10 mode on
 
 interface GigabitEthernet0/7
  description MGMT-INTERFACE
  no switchport
  no ip address
-
+ channel-group 10 mode active
 
 router ospf 100
  log-adjacency-changes detail
