@@ -3,18 +3,11 @@
 import argparse
 import requests
 import json
-import yaml
+from helper.config import readConfig
 
-
+# set default config file to your needs
 default_config_file = "./config.yaml"
 
-def readConfig(filename):
-    """
-    read config from file
-    Returns: json
-    """
-    with open(filename) as f:
-        return yaml.safe_load(f.read())
 
 def add_device():
 
@@ -31,28 +24,19 @@ def add_device():
     parser.add_argument('--interface', type=str, required=False)
     parser.add_argument('--interfacetype', type=str, required=False)
 
-
     args = parser.parse_args()
-
-    # read config file if config.args is set
-    if args.deviceconfig:
-        with open(args.deviceconfig, 'r') as file:
-            deviceconfig = file.read().replace('\n', '\\n')
-    else:
-        deviceconfig = ""
 
     # read config
     if args.config is not None:
         config_file = args.config
     else:
         config_file = default_config_file
+    config = readConfig(config_file)
 
     # we use a dict to store our resukts
     result = {}
     result['logs'] = []
     result['success'] = []
-
-    config = readConfig(config_file)
 
     data_add_device = {
         "name": args.device,
@@ -64,7 +48,7 @@ def add_device():
     }
 
     # please notice: check config.yaml and check if a // is not part of the URL!
-    url_add_debice = "%s/onboarding/adddevice" % config["api_endpoint"]
+    url_add_debice = "%s/onboarding/adddevice" % config["sot"]["api_endpoint"]
     r = requests.post(url=url_add_debice, json=data_add_device)
 
     if r.status_code != 200:
@@ -90,7 +74,7 @@ def add_device():
         }
 
         # please notice: check config.yaml and check if a // is not part of the URL!
-        url_add_device = "%s/onboarding/addinterface" % config["api_endpoint"]
+        url_add_device = "%s/onboarding/addinterface" % config["sot"]["api_endpoint"]
         r = requests.post(url=url_add_device, json=data_add_interface)
 
         if r.status_code != 200:
@@ -116,7 +100,7 @@ def add_device():
         }
 
         # please notice: check config.yaml and check if a // is not part of the URL!
-        url_add_adress = "%s/onboarding/addaddress" % config["api_endpoint"]
+        url_add_adress = "%s/onboarding/addaddress" % config["sot"]["api_endpoint"]
         r = requests.post(url=url_add_adress, json=data_add_address)
 
         if r.status_code != 200:
@@ -135,7 +119,6 @@ def add_device():
                     result['logs'].append("address not added; unknown reason")
 
     print (json.dumps(result, indent=4))
-
 
 if __name__ == "__main__":
     add_device()

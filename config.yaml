@@ -1,2 +1,14 @@
 ---
-api_endpoint: "http://127.0.0.1:8000"
+sot:
+  api_endpoint: "http://127.0.0.1:8000"
+
+onboarding:
+  defaults:
+    interface:
+      - Management
+      - Loopback0
+    type: vios_router
+    role: pod_router
+    manufacturer: cisco
+    site: default
+    status: active
