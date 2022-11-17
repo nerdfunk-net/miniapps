@@ -25,6 +25,12 @@ class DeviceConfig:
         IPv4_REGEX = r"ip\saddress\s(\S+\s+\S+)"
         PO_ACTIVE = r" channel-group\s(\d+)\smode\s(\S+)$"
 
+        """
+        parse interface config first
+         - get description
+         - check if port-channel
+         - get IP address
+        """
         self.__config["interfaces"] = {}
         interface_cmds = self.__deviceConfig.find_objects(r"^interface ")
         for interface_cmd in interface_cmds:
@@ -36,7 +42,7 @@ class DeviceConfig:
             for cmd in interface_cmd.re_search_children(r"^ description "):
                 self.__config["interfaces"][intf_name]["description"] = cmd.text.strip()[len("description "):]
 
-            # check if LACP port-channel
+            # check if port-channel
             for cmd in interface_cmd.re_search_children(r"^ channel-group"):
                 match = re.match(PO_ACTIVE, cmd.text)
                 if match:
@@ -62,6 +68,19 @@ class DeviceConfig:
                         "bits": IPAddress(ipv4_addr.netmask.exploded).netmask_bits()
                     }
                 })
+
+        """
+        check if config contains OSPF 
+        """
+        self.__config["ospf"] = {}
+        for ospf_cmds in self.__deviceConfig.find_objects(r"^router ospf"):
+            ospf_process = re.match(r'router ospf\s(\d+)', ospf_cmds.text).group(1)
+            if ospf_process is not None:
+                self.__config["ospf"][ospf_process] = {}
+                self.__config["ospf"][ospf_process]['config'] = []
+                for val_obj in ospf_cmds.children:
+                    self.__config["ospf"][ospf_process]['config'].append (val_obj.text)
+
         print (json.dumps(self.__config,indent=4))
 
     def get_hostname(self):
