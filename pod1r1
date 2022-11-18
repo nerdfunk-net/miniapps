@@ -101,22 +101,28 @@ ip scp enable
 ntp server 192.168.1.1
 
 interface Loopback0
- description iBGP LOOPBACK
+ description Loop0
  ip address 1.1.1.1 255.255.255.255
+!
+interface Loopback100
+ description Loop100
+ ip address 1.1.1.2 255.255.255.255
 !
 interface GigabitEthernet0/0
  description UPLINK TO INTERNET PROVIDER
  no switchport
  ip address 192.168.0.1 255.255.255.0
+ shutdown
 !
 interface GigabitEthernet0/1
  description DOWNLINK POD1SW1
- no switchport
- no ip address
+ switchport
+ switchport access vlan 100
+ ip ospf authentication message-digest
 
 interface GigabitEthernet0/2
  description DOWNLINK POD1SW2
- no switchport
+ switchport
  no ip address
  channel-group 10 mode on
 
@@ -126,7 +132,8 @@ interface GigabitEthernet0/7
  no ip address
  channel-group 10 mode active
 
-router ospf 100
+router ospf 110
+ router-id 1.1.1.1
  log-adjacency-changes detail
  auto-cost reference-bandwidth 10000
  nsf ietf

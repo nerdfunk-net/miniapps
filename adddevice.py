@@ -33,7 +33,7 @@ def add_device():
         config_file = default_config_file
     config = readConfig(config_file)
 
-    # we use a dict to store our resukts
+    # we use a dict to store our results
     result = {}
     result['logs'] = []
     result['success'] = []
