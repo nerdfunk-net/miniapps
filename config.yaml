@@ -10,7 +10,11 @@ onboarding:
     devicetype: vios_router
     role: pod_router
     manufacturer: cisco
+    platform: cisco_ios
     site: default
     status: active
   tags:
-    ospf: "^ ip ospf"
+    interfaces:
+      ospf: "^ ip ospf"
+      test: "^ test"
+

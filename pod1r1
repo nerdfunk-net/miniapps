@@ -42,7 +42,11 @@ ip domain name DOMAIN
 vtp mode transparent
 udld enable
 
+vlan 100
+ name vlan100 test
 
+vlan 200
+ name vlan200
 
 flow record FLOW-REC1
  description desc
@@ -100,6 +104,11 @@ ip scp enable
 
 ntp server 192.168.1.1
 
+interface Port-channel 1
+ description portchannel
+ ip address 2.2.2.2 255.255.255.0
+ no switchport
+
 interface Loopback0
  description Loop0
  ip address 1.1.1.1 255.255.255.255
@@ -110,35 +119,25 @@ interface Loopback100
 !
 interface GigabitEthernet0/0
  description UPLINK TO INTERNET PROVIDER
- no switchport
- ip address 192.168.0.1 255.255.255.0
- shutdown
+ channel-group 1 mode active
 !
 interface GigabitEthernet0/1
  description DOWNLINK POD1SW1
- switchport
- switchport access vlan 100
- ip ospf authentication message-digest
+ channel-group 1 mode active
 
 interface GigabitEthernet0/2
- description DOWNLINK POD1SW2
- switchport
- no ip address
- channel-group 10 mode on
+ description switch port
+ switchport mode access
+ switchport access vlan 100
+ ip ospf authentication message-digest
+ test test
 
-interface GigabitEthernet0/7
- description MGMT-INTERFACE
- no switchport
- no ip address
- channel-group 10 mode active
+interface GigabitEthernet0/3
+ description trunk
+ switchport mode trunk
+ switchport trunk allowed vlan 100,200
 
-router ospf 110
- router-id 1.1.1.1
- log-adjacency-changes detail
- auto-cost reference-bandwidth 10000
- nsf ietf
- timers throttle spf 50 200 10000
- timers throttle lsa 10 100 10000
- timers lsa arrival 10000
-
-
+interface GigabitEthernet0/4
+ description trunk
+ switchport mode trunk
+ switchport trunk allowed vlan 100-200

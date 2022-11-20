@@ -10,52 +10,9 @@ from helper.cisco import DeviceConfig
 # set default config file to your needs
 default_config_file = "./config.yaml"
 
-def add_device(config, data_add_device, result):
-
+def update_primary_adress(config, data_add_address, result):
     # please notice: check config.yaml and check if a // is not part of the URL!
-    url_add_debice = "%s/onboarding/adddevice" % config["sot"]["api_endpoint"]
-    r = requests.post(url=url_add_debice, json=data_add_device)
-
-    if r.status_code != 200:
-        result['logs'].append('got status code %i' % r.status_code)
-    else:
-        # we got a json. parse it and check if we have a success or not
-        response = json.loads(r.content)
-        if response["success"]:
-            result['success'].append(True)
-            result['logs'].append("device %s added to sot" % data_add_device['name'])
-        else:
-            result['success'].append(False)
-            if "reason" in response:
-                result['logs'].append("device not added; %s" % response["reason"])
-            else:
-                result['logs'].append("device not added; unknown reason")
-
-def add_interface(config, data_add_interface, result):
-
-    # please notice: check config.yaml and check if a // is not part of the URL!
-    url_add_device = "%s/onboarding/addinterface" % config["sot"]["api_endpoint"]
-    r = requests.post(url=url_add_device, json=data_add_interface)
-
-    if r.status_code != 200:
-        result['logs'].append('got status code %i' % r.status_code)
-    else:
-        # we got a json. parse it and check if we have a success or not
-        response = json.loads(r.content)
-        if response["success"]:
-            result['success'].append(True)
-            result['logs'].append("interface %s added to sot" % data_add_interface['interface'])
-        else:
-            result['success'].append(False)
-            if "reason" in response:
-                result['logs'].append("interface not added; %s" % response["reason"])
-            else:
-                result['logs'].append("interface not added; unknown reason")
-
-def add_ipaddress(config, data_add_address, result):
-
-    # please notice: check config.yaml and check if a // is not part of the URL!
-    url_add_adress = "%s/onboarding/addaddress" % config["sot"]["api_endpoint"]
+    url_add_adress = "%s/onboarding/updateprimary" % config["sot"]["api_endpoint"]
     r = requests.post(url=url_add_adress, json=data_add_address)
 
     if r.status_code != 200:
@@ -65,13 +22,34 @@ def add_ipaddress(config, data_add_address, result):
         response = json.loads(r.content)
         if response["success"]:
             result['success'].append(True)
-            result['logs'].append("address %s added to sot" % data_add_address['address'])
+            result['logs'].append("address %s set as primary" % data_add_address['address'])
         else:
             result['success'].append(False)
             if "reason" in response:
-                result['logs'].append("address not added; %s" % response["reason"])
+                result['logs'].append("address is not primary; %s" % response["reason"])
             else:
-                result['logs'].append("address not added; unknown reason")
+                result['logs'].append("address is not primary; unknown reason")
+
+def send_request(url, config, json_data, result, item="", success=""):
+
+    # please notice: check config.yaml and check if a // is not part of the URL!
+    url_request = "%s/onboarding/%s" % (config["sot"]["api_endpoint"],url)
+    r = requests.post(url=url_request, json=json_data)
+
+    if r.status_code != 200:
+        result['logs'].append('got status code %i' % r.status_code)
+    else:
+        # we got a json. parse it and check if we have a success or not
+        response = json.loads(r.content)
+        if response["success"]:
+            result['success'].append(True)
+            result['logs'].append("%s %s" % (item,success))
+        else:
+            result['success'].append(False)
+            if "reason" in response:
+                result['logs'].append("%s failed; %s" % (item, response["reason"]))
+            else:
+                result['logs'].append("interface updated; unknown reason")
 
 def onboarding():
 
@@ -93,9 +71,21 @@ def onboarding():
         config_file = default_config_file
     config = readConfig(config_file)
 
-    # read config and parse it
+    # read device config and parse it
     ciscoconf = DeviceConfig(args.deviceconfig)
 
+    # set tags
+    if 'tags' in config['onboarding']:
+        if 'interfaces' in config['onboarding']['tags']:
+            for tag in config['onboarding']['tags']['interfaces']:
+                ciscoconf.tag_interfaces(tag, config['onboarding']['tags']['interfaces'][tag])
+
+    # we use a dict to store our results
+    result = {}
+    result['logs'] = []
+    result['success'] = []
+
+    # add device to sot
     data_add_device = {
         "name": ciscoconf.get_hostname(),
         "site": args.site or config['onboarding']['defaults']['site'],
@@ -104,39 +94,136 @@ def onboarding():
         "manufacturer": args.manufacturer or config['onboarding']['defaults']['manufacturer'],
         "status": args.status or config['onboarding']['defaults']['status']
     }
+    # send_request("adddevice",
+    #              config,
+    #              data_add_device,
+    #              result,
+    #              item="device %s" % ciscoconf.get_hostname(),
+    #              success="added to sot")
 
-    # set tags
-    if 'tags' in config['onboarding']:
-        for tag in config['onboarding']['tags']:
-            ciscoconf.tag_interfaces(tag, config['onboarding']['tags'][tag])
-    #print (json.dumps(ciscoconf.get_config(),indent=4))
+    # add Interfaces and IP addresses
+    interfaces = ciscoconf.get_interfaces()
+    for name in interfaces:
+        interface = interfaces[name]
+        data_add_interface = {
+            "name": ciscoconf.get_hostname(),
+            "interface": name,
+            "interfacetype": interface['type'],
+            "description": interface['description']
+        }
+        # send_request("addinterface",
+        #              config,
+        #              data_add_interface,
+        #              result,
+        #              item="interface %s" % name,
+        #              success="added to sot")
 
-    # we use a dict to store our results
-    result = {}
-    result['logs'] = []
-    result['success'] = []
-
-    # add device to sot
-    add_device(config, data_add_device, result)
-
-    # add Interface
-    for interface in config['onboarding']['defaults']['interface']:
-        iface = ciscoconf.get_interface(interface)
-        if iface is not None:
-            data_add_interface = {
-                "name": ciscoconf.get_hostname(),
-                "interface": interface,
-                "interfacetype": iface['type'],
-                #"label": iface['description']
-            }
+        if ciscoconf.get_ipaddress(interface['name']) is not None:
             data_add_address = {
                 "name": ciscoconf.get_hostname(),
-                "interface": interface,
-                "address": ciscoconf.get_ipaddress(interface)
+                "interface": name,
+                "address": ciscoconf.get_ipaddress(interface['name'])
             }
-            add_interface(config, data_add_interface, result)
-            add_ipaddress(config, data_add_address, result)
+            # send_request("addaddress",
+            #              config,
+            #              data_add_address,
+            #              result,
+            #              "address %s" % ciscoconf.get_ipaddress(interface['name']),
+            #              "added to sot")
+
+    # check if we have Etherchannels
+    for name in interfaces:
+        interface = interfaces[name]
+        if 'lag' in interface:
+            lag_data = '{"lag": "Port-channel %s"}' % interface["lag"]["group"]
+            newconfig = {
+                "name": ciscoconf.get_hostname(),
+                "interface": name,
+                "config": lag_data
+            }
+            # send_request("updateinterface",
+            #               config,
+            #               newconfig,
+            #               result,
+            #               "interface %s" % name,
+            #               "updated in sot")
+
+    # setting switchport
+    for name in interfaces:
+        interface = interfaces[name]
+        mode = None
+        if 'switchport' in interface:
+            mode = interface['switchport']['mode']
+            if mode == 'access':
+                data = '{"mode": "access", "untagged": "%s", "site":"%s"}' % (
+                    interface['switchport']['vlan'],
+                    args.site or config['onboarding']['defaults']['site']
+                )
+            elif mode == 'tagged':
+                data = '{"mode": "tagged"}'
+            else:
+                data = None
+
+            if data is not None:
+                newconfig = {
+                    "name": ciscoconf.get_hostname(),
+                    "interface": name,
+                    "config": data
+                }
+                send_request("updateinterface",
+                             config,
+                             newconfig,
+                             result,
+                             "switchport %s" % name,
+                             "updated in sot")
+
+    # setting tags
+    for name in interfaces:
+        interface = interfaces[name]
+        if 'tags' in interface:
+            data = '{"tags": "%s"}' % ",".join(interface['tags'])
+            newconfig = {
+                "name": ciscoconf.get_hostname(),
+                "interface": name,
+                "config": data
+            }
+            send_request("updateinterface",
+                         config,
+                         newconfig,
+                         result,
+                         "tags %s" % interface['tags'],
+                         "set in sot")
+
+    # set primary IP of device
+    for iface in config['onboarding']['defaults']['interface']:
+        if ciscoconf.get_ipaddress(iface) is not None:
+            data_set_primary = {
+                "name": ciscoconf.get_hostname(),
+                "address": ciscoconf.get_ipaddress(iface)
+            }
+            # send_request("updateprimary",
+            #              config,
+            #              data_set_primary,
+            #              result,
+            #              "primary address %s" % ciscoconf.get_ipaddress(iface),
+            #              "updated in sot")
             break
+
+    # add vlans
+    vlans = ciscoconf.get_vlans()
+    for vid in vlans:
+        data_add_vlan = {
+            "vid": vid,
+            "name": vlans[vid]['name'],
+            "status": "active",
+            "site": args.site or config['onboarding']['defaults']['site']
+        }
+        # send_request("addvlan",
+        #              config,
+        #              data_add_vlan,
+        #              result,
+        #              "vlan %s" % vid,
+        #              "added to sot")
 
     print (json.dumps(result, indent=4))
 

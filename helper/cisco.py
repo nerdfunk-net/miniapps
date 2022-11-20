@@ -1,16 +1,23 @@
 from ciscoconfparse import CiscoConfParse, IPv4Obj
 from netaddr import IPAddress
+from operator import add
 import re
+import yaml
 import json
+
+
+MAPPING_YAML = './helper/mapping.yaml'
 
 class DeviceConfig:
     __raw = ""
     __deviceConfig = []
-    __confige = None
+    __config = None
+    __mapping = None
 
     def __init__(self, filename):
         self.__config = {}
         self.read_config(filename)
+        self.get_mapping(MAPPING_YAML)
         self.init_config()
 
     def read_config(self, filename):
@@ -18,6 +25,9 @@ class DeviceConfig:
         with open(filename, 'r') as file:
             self.__raw = file.read().splitlines()
 
+    def get_mapping(self, filename):
+        with open(filename) as f:
+            self.__mapping = yaml.safe_load(f.read())
     def init_config(self):
         self.__deviceConfig = CiscoConfParse(self.__raw)
         self.__parse_config()
@@ -27,18 +37,20 @@ class DeviceConfig:
 
     def __parse_config(self):
         IPv4_REGEX = r"ip\saddress\s(\S+\s+\S+)"
-        PO_ACTIVE = r" channel-group\s(\d+)\smode\s(\S+)$"
+        LAG = r" channel-group\s(\d+)\smode\s(\S+)$"
         OSPF_ROUTER_ID = r"^ router-id\s(\S+)"
         HOSTNAME = r"^hostname\s+(\S+)"
         CHANNEL_GROUP = r"^ channel-group"
-        VLAN = r"^ switchport access vlan (\d+)"
+        VLAN_NAME = r"^ name (\S+)"
+        ACCESS = r"^ switchport mode access"
+        TRUNK = r"^ switchport mode trunk"
+        SWITCHPORT_VLAN = r"^ switchport access vlan (\d+)"
+        TRUNK_VLANS = r"^ switchport trunk allowed vlan (\S+)"
 
         # these regexes results in true or false
         regexes = {}
         regexes['no_switchport'] = r"^ no switchport"
-        regexes['switchport'] = r"^ switchport"
         regexes['shutdown'] = r"^ shutdown"
-        regexes['trunk'] = r"^ switchport mode trunk"
         regexes['access'] = r"^ switchpport mode access"
 
         """
@@ -47,7 +59,20 @@ class DeviceConfig:
         self.__config["hostname"] = self.__deviceConfig.re_match_iter_typed(HOSTNAME, default='')
 
         """
+        parse vlans
+        """
+        self.__config["vlan"] = {}
+        vlan_cfgs = self.__deviceConfig.find_objects(r"^vlan")
+        for vlan_cfg in vlan_cfgs:
+            vid = vlan_cfg.text[len("vlan "):]
+            name = vlan_cfg.re_match_iter_typed(VLAN_NAME, default='')
+            self.__config["vlan"][vid] = {}
+            self.__config["vlan"][vid]['vid'] = vid
+            self.__config["vlan"][vid]['name'] = name
+
+        """
         parse interface config first
+         - set name
          - get description
          - check if port-channel
          - get IP address
@@ -67,21 +92,51 @@ class DeviceConfig:
 
             # check if port-channel
             for cmd in interface_cmd.re_search_children(CHANNEL_GROUP):
-                match = re.match(PO_ACTIVE, cmd.text)
+                match = re.match(LAG, cmd.text)
                 if match:
-                    self.__config["interfaces"][intf_name]["po"] = {}
+                    self.__config["interfaces"][intf_name]["lag"] = {}
                     self.__config["interfaces"][intf_name].update({
-                        "po": {
+                        "lag": {
                             "group": match.group(1),
                             "mode": match.group(2)
                         }
                     })
 
-            # check VLAN
-            for cmd in interface_cmd.re_search_children(VLAN):
-                match = re.match(VLAN, cmd.text)
+            # check switchport
+            for cmd in interface_cmd.re_search_children(ACCESS):
+                match = re.match(ACCESS, cmd.text)
                 if match:
-                    self.__config["interfaces"][intf_name]["vlan"] = match.group(1)
+                    self.__config["interfaces"][intf_name]['switchport'] = {}
+                    self.__config["interfaces"][intf_name]['switchport']['mode'] = 'access'
+
+            # check access VLAN
+            for cmd in interface_cmd.re_search_children(SWITCHPORT_VLAN):
+                match = re.match(SWITCHPORT_VLAN, cmd.text)
+                if match:
+                    if 'vlan' not in self.__config["interfaces"][intf_name]['switchport']:
+                        self.__config["interfaces"][intf_name]['switchport']['vlan'] = []
+                    self.__config["interfaces"][intf_name]['switchport']["vlan"] = match.group(1)
+
+            # check TRUNK
+            for cmd in interface_cmd.re_search_children(TRUNK):
+                match = re.match(TRUNK, cmd.text)
+                if match:
+                    if 'switchport' not in self.__config["interfaces"][intf_name]:
+                        self.__config["interfaces"][intf_name]['switchport'] = {}
+                        self.__config["interfaces"][intf_name]['switchport']['mode'] = "tagged"
+
+            # check if TRUNK has allowed vlans configured
+            for cmd in interface_cmd.re_search_children(TRUNK_VLANS):
+                match = re.match(TRUNK_VLANS, cmd.text)
+                if match:
+                    if 'vlan' not in self.__config["interfaces"][intf_name]['switchport']:
+                        self.__config["interfaces"][intf_name]['switchport']['vlan'] = []
+                    vlans = match.group(1)
+                    if '-' in vlans:
+                        self.__config["interfaces"][intf_name]['switchport']['range'] = True
+                    else:
+                        for i in vlans.split(','):
+                            self.__config["interfaces"][intf_name]['switchport']["vlan"].append(i)                        #self.__config["interfaces"][intf_name]["vlan"]['vlans'].append(vlans.split(','))
 
             # check all defined regexes
             for regex in regexes:
@@ -128,10 +183,18 @@ class DeviceConfig:
     def get_ipaddress(self, interface, type='cidr'):
         if interface not in self.__config["interfaces"]:
             return None
+        if 'ipv4' not in self.__config["interfaces"][interface]:
+            return None
         if type == 'cidr':
-            return self.__config["interfaces"][interface]['ipv4']['cidr']
+            if 'cidr' in self.__config["interfaces"][interface]['ipv4']:
+                return self.__config["interfaces"][interface]['ipv4']['cidr']
+            else:
+                return None
         if type== 'ip':
-            return self.__config["interfaces"][interface]['ipv4']['address']
+            if 'address' in self.__config["interfaces"][interface]['ipv4']:
+                return self.__config["interfaces"][interface]['ipv4']['address']
+            else:
+                return None
 
         return self.__config["interfaces"][interface]
 
@@ -160,25 +223,26 @@ class DeviceConfig:
         interface_cmds = self.__deviceConfig.find_objects(r"^interface ")
         for interface_cmd in interface_cmds:
             intf_name = interface_cmd.text[len("interface "):]
-            if 'tags' not in self.__config["interfaces"][intf_name]:
-                self.__config["interfaces"][intf_name]["tags"] = []
             for cmd in interface_cmd.re_search_children(regex):
                 match = re.match(regex, cmd.text)
                 if match:
+                    if 'tags' not in self.__config["interfaces"][intf_name]:
+                        self.__config["interfaces"][intf_name]["tags"] = []
                     self.__config["interfaces"][intf_name]["tags"].append(tag)
 
     def get_interface_type(self, interface):
-        if 'Loopback' in interface:
-            return 'virtual'
-        if 'GigabitEthernet' in interface:
-            return 'A_1000BASE_T'
-        if 'Portchannel' in interface:
-            return 'LAG'
-        if 'TenGigabit' in interface:
-            return 'A_10GBASE_T'
-        return 'OTHER'
+        for mapping in self.__mapping['interfaces']:
+            if mapping in interface:
+                return self.__mapping['interfaces'][mapping]
+        return self.__mapping['interfaces']['default']
 
     def get_interface(self, interface):
         if interface in self.__config["interfaces"]:
             return self.__config["interfaces"][interface]
         return None
+
+    def get_interfaces(self):
+        return self.__config["interfaces"]
+
+    def get_vlans(self):
+        return self.__config["vlan"]
