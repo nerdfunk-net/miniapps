@@ -3,13 +3,23 @@
 import requests
 import json
 
-#config = '{"location": "location", "site":"pod1"}'
-#config = '{"location": "location"}'
-config = '{"site":"site1"}'
+update = {
+     "name": "pod1r1",
+     "device_role": "pod_router",
+     "manufacturer": "arista",
+     "device_type": "arista_router",
+     "serial": "serialnumber",
+     "site": "pod1",
+     "location": "location",
+     "status": "active",
+     "primary_ip4": "1.1.1.2/32",
+     "comments": "comments",
+     "tags": "d1,d1"
+}
 
 data = {
-     "name": "pod1r1",
-     "config": config
+     "name": "new_name",
+     "config": update
 }
 
 url_add_adress = "http://127.0.0.1:8000/onboarding/updatedevice"

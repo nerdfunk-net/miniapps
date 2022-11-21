@@ -92,6 +92,7 @@ def onboarding():
         "role": args.role or config['onboarding']['defaults']['role'],
         "devicetype": args.devicetype or config['onboarding']['defaults']['devicetype'],
         "manufacturer": args.manufacturer or config['onboarding']['defaults']['manufacturer'],
+        "platform": args.manufacturer or config['onboarding']['defaults']['platform'],
         "status": args.status or config['onboarding']['defaults']['status']
     }
     send_request("adddevice",
@@ -156,7 +157,8 @@ def onboarding():
     for name in interfaces:
         interface = interfaces[name]
         if 'lag' in interface:
-            lag_data = '{"lag": "Port-channel %s"}' % interface["lag"]["group"]
+            #pc = "Port-channel %s" % interface["lag"]["group"]
+            lag_data = {"lag": "Port-channel %s" % interface["lag"]["group"]}
             newconfig = {
                 "name": ciscoconf.get_hostname(),
                 "interface": name,
@@ -176,19 +178,19 @@ def onboarding():
         if 'switchport' in interface:
             mode = interface['switchport']['mode']
             if mode == 'access':
-                data = '{"mode": "access", "untagged": "%s", "site":"%s"}' % (
-                    interface['switchport']['vlan'],
-                    args.site or config['onboarding']['defaults']['site']
-                )
+                data = {"mode": "access",
+                        "untagged": interface['switchport']['vlan'],
+                        "site": args.site or config['onboarding']['defaults']['site']
+                        }
             elif mode == 'tagged':
                 # check if we have allowed vlans
                 if 'vlan' in interface['switchport'] and \
                         'range' not in interface['switchport']:
                     vlans = ",".join(interface['switchport']['vlan'])
-                    data = '{"mode": "tagged","tagged": "%s","site":"%s"}' % (
-                        vlans,
-                        args.site or config['onboarding']['defaults']['site']
-                    )
+                    data = {"mode": "tagged",
+                            "tagged": vlans,
+                            "site": args.site or config['onboarding']['defaults']['site']
+                            }
             else:
                 data = None
 
@@ -209,11 +211,11 @@ def onboarding():
     for name in interfaces:
         interface = interfaces[name]
         if 'tags' in interface:
-            data = '{"tags": "%s"}' % ",".join(interface['tags'])
+            list = ",".join(interface['tags'])
             newconfig = {
                 "name": ciscoconf.get_hostname(),
                 "interface": name,
-                "config": data
+                "config": {"tags": list}
             }
             send_request("updateinterface",
                          config,
@@ -225,7 +227,7 @@ def onboarding():
     # set primary IP of device
     for iface in config['onboarding']['defaults']['interface']:
         if ciscoconf.get_ipaddress(iface) is not None:
-            new_addr = '{"primary_ip4": "%s"}' % ciscoconf.get_ipaddress(iface)
+            new_addr = {"primary_ip4": ciscoconf.get_ipaddress(iface)}
             data_set_primary = {
                 "name": ciscoconf.get_hostname(),
                 "config": new_addr
