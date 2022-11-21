@@ -130,7 +130,7 @@ interface GigabitEthernet0/2
  switchport mode access
  switchport access vlan 100
  ip ospf authentication message-digest
- test test
+ shutdown
 
 interface GigabitEthernet0/3
  description trunk

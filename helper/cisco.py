@@ -1,12 +1,11 @@
 from ciscoconfparse import CiscoConfParse, IPv4Obj
 from netaddr import IPAddress
-from operator import add
 import re
 import yaml
-import json
 
 
 MAPPING_YAML = './helper/mapping.yaml'
+
 
 class DeviceConfig:
     __raw = ""
@@ -28,6 +27,7 @@ class DeviceConfig:
     def get_mapping(self, filename):
         with open(filename) as f:
             self.__mapping = yaml.safe_load(f.read())
+
     def init_config(self):
         self.__deviceConfig = CiscoConfParse(self.__raw)
         self.__parse_config()
@@ -47,11 +47,10 @@ class DeviceConfig:
         SWITCHPORT_VLAN = r"^ switchport access vlan (\d+)"
         TRUNK_VLANS = r"^ switchport trunk allowed vlan (\S+)"
 
-        # these regexes results in true or false
-        regexes = {}
-        regexes['no_switchport'] = r"^ no switchport"
-        regexes['shutdown'] = r"^ shutdown"
-        regexes['access'] = r"^ switchpport mode access"
+        # these regexes result in true or false
+        regexes = {'no_switchport': r"^ no switchport",
+                   'shutdown': r"^ shutdown",
+                   'access': r"^ switchpport mode access"}
 
         """
         get hostname
@@ -136,7 +135,7 @@ class DeviceConfig:
                         self.__config["interfaces"][intf_name]['switchport']['range'] = True
                     else:
                         for i in vlans.split(','):
-                            self.__config["interfaces"][intf_name]['switchport']["vlan"].append(i)                        #self.__config["interfaces"][intf_name]["vlan"]['vlans'].append(vlans.split(','))
+                            self.__config["interfaces"][intf_name]['switchport']["vlan"].append(i)
 
             # check all defined regexes
             for regex in regexes:
@@ -169,28 +168,28 @@ class DeviceConfig:
                 self.__config["ospf"][ospf_process] = {}
                 self.__config["ospf"][ospf_process]['config'] = []
                 for val_obj in ospf_cmds.children:
-                    self.__config["ospf"][ospf_process]['config'].append (val_obj.text)
+                    self.__config["ospf"][ospf_process]['config'].append(val_obj.text)
                     rid = val_obj.re_match_typed(OSPF_ROUTER_ID, default='None')
-                    if rid !=  'None':
+                    if rid != 'None':
                         self.__config["ospf"][ospf_process]['rid'] = rid
 
         #print (json.dumps(self.__config["ospf"], indent=4))
         #print (json.dumps(self.__config,indent=4))
 
     def get_hostname(self):
-        return (self.__config["hostname"])
+        return self.__config["hostname"]
 
-    def get_ipaddress(self, interface, type='cidr'):
+    def get_ipaddress(self, interface, result='cidr'):
         if interface not in self.__config["interfaces"]:
             return None
         if 'ipv4' not in self.__config["interfaces"][interface]:
             return None
-        if type == 'cidr':
+        if result == 'cidr':
             if 'cidr' in self.__config["interfaces"][interface]['ipv4']:
                 return self.__config["interfaces"][interface]['ipv4']['cidr']
             else:
                 return None
-        if type== 'ip':
+        if result == 'ip':
             if 'address' in self.__config["interfaces"][interface]['ipv4']:
                 return self.__config["interfaces"][interface]['ipv4']['address']
             else:
@@ -198,10 +197,10 @@ class DeviceConfig:
 
         return self.__config["interfaces"][interface]
 
-    def get_netmask(self, interface, type='ip'):
+    def get_netmask(self, interface, result='ip'):
         if interface not in self.__config["interfaces"]:
             return None
-        if type == 'cidr':
+        if result == 'cidr':
             return self.__config["interfaces"][interface]['ipv4']['bits']
 
         return self.__config["interfaces"][interface]['ipv4']['netmask']
