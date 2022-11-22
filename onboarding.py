@@ -2,57 +2,29 @@
 
 import argparse
 import json
-import requests
-from helper.config import readConfig
 from helper.cisco import DeviceConfig
+from helper.config import read_config
+from helper.sot import send_request
 
 
 # set default config file to your needs
 default_config_file = "./config.yaml"
 
-def update_primary_adress(config, data_add_address, result):
-    # please notice: check config.yaml and check if a // is not part of the URL!
-    url_add_adress = "%s/onboarding/updateprimary" % config["sot"]["api_endpoint"]
-    r = requests.post(url=url_add_adress, json=data_add_address)
-
-    if r.status_code != 200:
-        result['logs'].append('got status code %i' % r.status_code)
-    else:
-        # we got a json. parse it and check if we have a success or not
-        response = json.loads(r.content)
-        if response["success"]:
-            result['success'].append(True)
-            result['logs'].append("address %s set as primary" % data_add_address['address'])
-        else:
-            result['success'].append(False)
-            if "reason" in response:
-                result['logs'].append("address is not primary; %s" % response["reason"])
-            else:
-                result['logs'].append("address is not primary; unknown reason")
-
-def send_request(url, config, json_data, result, item="", success=""):
-
-    # please notice: check config.yaml and check if a // is not part of the URL!
-    url_request = "%s/onboarding/%s" % (config["sot"]["api_endpoint"],url)
-    r = requests.post(url=url_request, json=json_data)
-
-    if r.status_code != 200:
-        result['logs'].append('got status code %i' % r.status_code)
-    else:
-        # we got a json. parse it and check if we have a success or not
-        response = json.loads(r.content)
-        if response["success"]:
-            result['success'].append(True)
-            result['logs'].append("%s %s" % (item,success))
-        else:
-            result['success'].append(False)
-            if "reason" in response:
-                result['logs'].append("%s failed; %s" % (item, response["reason"]))
-            else:
-                result['logs'].append("interface updated; unknown reason")
 
 def onboarding():
+    """
+    main function that reads config and add device including interfaces, vlans
+    and other necessary items
 
+    Returns: -
+
+    """
+
+    """
+    There is only on mandatory argument. We need the device config.
+    The other arguments can override the default values configured
+    in our config file.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument('--deviceconfig', type=str, required=True)
     parser.add_argument('--site', type=str, required=False)
@@ -69,7 +41,7 @@ def onboarding():
         config_file = args.config
     else:
         config_file = default_config_file
-    config = readConfig(config_file)
+    config = read_config(config_file)
 
     # read device config and parse it
     ciscoconf = DeviceConfig(args.deviceconfig)
@@ -81,9 +53,7 @@ def onboarding():
                 ciscoconf.tag_interfaces(tag, config['onboarding']['tags']['interfaces'][tag])
 
     # we use a dict to store our results
-    result = {}
-    result['logs'] = []
-    result['success'] = []
+    result = {'logs': [], 'success': []}
 
     # add device to sot
     data_add_device = {
@@ -95,6 +65,7 @@ def onboarding():
         "platform": args.manufacturer or config['onboarding']['defaults']['platform'],
         "status": args.status or config['onboarding']['defaults']['status']
     }
+    # send request is our helper function to call the network abstraction layer
     send_request("adddevice",
                  config,
                  data_add_device,
@@ -157,7 +128,6 @@ def onboarding():
     for name in interfaces:
         interface = interfaces[name]
         if 'lag' in interface:
-            #pc = "Port-channel %s" % interface["lag"]["group"]
             lag_data = {"lag": "Port-channel %s" % interface["lag"]["group"]}
             newconfig = {
                 "name": ciscoconf.get_hostname(),
@@ -165,16 +135,16 @@ def onboarding():
                 "config": lag_data
             }
             send_request("updateinterface",
-                          config,
-                          newconfig,
-                          result,
-                          "interface %s" % name,
-                          "updated in sot")
+                         config,
+                         newconfig,
+                         result,
+                         "interface %s" % name,
+                         "updated in sot")
 
     # setting switchport
     for name in interfaces:
         interface = interfaces[name]
-        mode = None
+        data = None
         if 'switchport' in interface:
             mode = interface['switchport']['mode']
             if mode == 'access':
@@ -191,8 +161,6 @@ def onboarding():
                             "tagged": vlans,
                             "site": args.site or config['onboarding']['defaults']['site']
                             }
-            else:
-                data = None
 
             if data is not None:
                 newconfig = {
@@ -211,11 +179,11 @@ def onboarding():
     for name in interfaces:
         interface = interfaces[name]
         if 'tags' in interface:
-            list = ",".join(interface['tags'])
+            tag_list = ",".join(interface['tags'])
             newconfig = {
                 "name": ciscoconf.get_hostname(),
                 "interface": name,
-                "config": {"tags": list}
+                "config": {"tags": tag_list}
             }
             send_request("updateinterface",
                          config,
@@ -240,8 +208,9 @@ def onboarding():
                          "updated in sot")
             break
 
-    print (json.dumps(result, indent=4))
-    #print (json.dumps(ciscoconf.get_config(),indent=4))
+    print(json.dumps(result, indent=4))
+    # print (json.dumps(ciscoconf.get_config(),indent=4))
+
 
 if __name__ == "__main__":
     onboarding()

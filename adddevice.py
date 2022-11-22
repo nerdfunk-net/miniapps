@@ -3,7 +3,7 @@
 import argparse
 import requests
 import json
-from helper.config import readConfig
+from helper.config import read_config
 
 # set default config file to your needs
 default_config_file = "./config.yaml"
@@ -31,7 +31,7 @@ def add_device():
         config_file = args.config
     else:
         config_file = default_config_file
-    config = readConfig(config_file)
+    config = read_config(config_file)
 
     # we use a dict to store our results
     result = {}

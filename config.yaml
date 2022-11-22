@@ -12,10 +12,8 @@ onboarding:
     manufacturer: cisco
     platform: cisco_ios
     site: default
-    tenant: None
     status: active
   tags:
     interfaces:
       ospf: "^ ip ospf"
-      test: "^ test"
 

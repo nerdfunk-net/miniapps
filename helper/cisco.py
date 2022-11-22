@@ -6,51 +6,58 @@ import yaml
 
 MAPPING_YAML = './helper/mapping.yaml'
 
+# define some regular expressions we use later
+IPv4_REGEX = r"ip\saddress\s(\S+\s+\S+)"
+LAG = r" channel-group\s(\d+)\smode\s(\S+)$"
+OSPF_ROUTER_ID = r"^ router-id\s(\S+)"
+HOSTNAME = r"^hostname\s+(\S+)"
+CHANNEL_GROUP = r"^ channel-group"
+VLAN_NAME = r"^ name (\S+)"
+ACCESS = r"^ switchport mode access"
+TRUNK = r"^ switchport mode trunk"
+SWITCHPORT_VLAN = r"^ switchport access vlan (\d+)"
+TRUNK_VLANS = r"^ switchport trunk allowed vlan (\S+)"
+
+# the next regexes result in true or false
+REGEXES = {'no_switchport': r"^ no switchport",
+           'shutdown': r"^ shutdown",
+           'access': r"^ switchpport mode access"}
+
 
 class DeviceConfig:
+    # raw is our config file
     __raw = ""
+    # config is the parsed cisco config
     __deviceConfig = []
+    # config is our build dict that includes all necessary values to
+    # add the device and the interface to our sot
     __config = None
+    # the mapping includes the interface mapping eg. GigabitEther to 1000base-t
     __mapping = None
 
     def __init__(self, filename):
         self.__config = {}
         self.read_config(filename)
-        self.get_mapping(MAPPING_YAML)
-        self.init_config()
+        self.read_mapping(MAPPING_YAML)
+        self.__deviceConfig = CiscoConfParse(self.__raw)
+        self.__parse_config()
 
     def read_config(self, filename):
         # read device config
         with open(filename, 'r') as file:
             self.__raw = file.read().splitlines()
 
-    def get_mapping(self, filename):
+    def read_mapping(self, filename):
         with open(filename) as f:
             self.__mapping = yaml.safe_load(f.read())
 
-    def init_config(self):
-        self.__deviceConfig = CiscoConfParse(self.__raw)
-        self.__parse_config()
-
-    def get_config(self):
-        return self.__config
-
     def __parse_config(self):
-        IPv4_REGEX = r"ip\saddress\s(\S+\s+\S+)"
-        LAG = r" channel-group\s(\d+)\smode\s(\S+)$"
-        OSPF_ROUTER_ID = r"^ router-id\s(\S+)"
-        HOSTNAME = r"^hostname\s+(\S+)"
-        CHANNEL_GROUP = r"^ channel-group"
-        VLAN_NAME = r"^ name (\S+)"
-        ACCESS = r"^ switchport mode access"
-        TRUNK = r"^ switchport mode trunk"
-        SWITCHPORT_VLAN = r"^ switchport access vlan (\d+)"
-        TRUNK_VLANS = r"^ switchport trunk allowed vlan (\S+)"
+        """
+        builds the dict we use to add the device to our sot
 
-        # these regexes result in true or false
-        regexes = {'no_switchport': r"^ no switchport",
-                   'shutdown': r"^ shutdown",
-                   'access': r"^ switchpport mode access"}
+        Returns:
+
+        """
 
         """
         get hostname
@@ -70,11 +77,17 @@ class DeviceConfig:
             self.__config["vlan"][vid]['name'] = name
 
         """
-        parse interface config first
+         we process the config in the following order:
          - set name
          - get description
-         - check if port-channel
-         - get IP address
+         - get interface type
+         - get port-channel
+         - get switchports
+         - get vlans
+         - get trunks
+         - process regular expressions
+         - get ip addresses
+         - check if ospf is configured
         """
         self.__config["interfaces"] = {}
         interface_cmds = self.__deviceConfig.find_objects(r"^interface ")
@@ -138,8 +151,8 @@ class DeviceConfig:
                             self.__config["interfaces"][intf_name]['switchport']["vlan"].append(i)
 
             # check all defined regexes
-            for regex in regexes:
-                for r in interface_cmd.re_search_children(regexes[regex]):
+            for regex in REGEXES:
+                for r in interface_cmd.re_search_children(REGEXES[regex]):
                     self.__config["interfaces"][intf_name][regex] = True
 
             # get IP Adresses
@@ -173,8 +186,8 @@ class DeviceConfig:
                     if rid != 'None':
                         self.__config["ospf"][ospf_process]['rid'] = rid
 
-        #print (json.dumps(self.__config["ospf"], indent=4))
-        #print (json.dumps(self.__config,indent=4))
+        # print (json.dumps(self.__config["ospf"], indent=4))
+        # print (json.dumps(self.__config,indent=4))
 
     def get_hostname(self):
         return self.__config["hostname"]
