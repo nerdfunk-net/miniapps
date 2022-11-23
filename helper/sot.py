@@ -2,9 +2,9 @@ import requests
 import json
 
 
-def send_request(url, config, json_data, result, item="", success=""):
+def send_request(url, api_endpoint, json_data, result, item="", success=""):
     # please notice: check config.yaml and check if a // is not part of the URL!
-    url_request = "%s/onboarding/%s" % (config["sot"]["api_endpoint"], url)
+    url_request = "%s/onboarding/%s" % (api_endpoint, url)
     r = requests.post(url=url_request, json=json_data)
 
     if r.status_code != 200:

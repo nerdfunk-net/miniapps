@@ -36,6 +36,8 @@ def onboarding():
     parser.add_argument('--devicetype', type=str, required=False)
     parser.add_argument('--status', type=str, required=False)
     parser.add_argument('--config', type=str, required=False)
+    parser.add_argument('--repo', type=str, required=False)
+    parser.add_argument('--prefixe', type=str, required=False)
 
     args = parser.parse_args()
 
@@ -47,10 +49,11 @@ def onboarding():
     config = read_config(config_file)
 
     # get default values of prefixes
-    prefixe = None
+    repo = args.repo or config['files']['sites']['repo']
+    filename = args.prefixe or config['files']['sites']['filename']
     prefixe_str = get_file(config["sot"]["api_endpoint"],
-                       config['files']['prefixe']['repo'],
-                       config['files']['prefixe']['filename'])
+                           repo,
+                           filename)
 
     prefixe = None
     try:
@@ -59,6 +62,7 @@ def onboarding():
             prefixe = prefixe_yaml['prefixe']
     except Exception as exc:
         print ("got exception: %s" % exc)
+        sys.exit(-1)
 
     # read device config and parse it
     ciscoconf = DeviceConfig(args.deviceconfig)
@@ -99,7 +103,7 @@ def onboarding():
 
     # send request is our helper function to call the network abstraction layer
     send_request("adddevice",
-                 config,
+                 config["sot"]["api_endpoint"],
                  data_add_device,
                  result,
                  item="device %s" % ciscoconf.get_hostname(),
@@ -121,7 +125,7 @@ def onboarding():
             "description": interface['description']
         }
         send_request("addinterface",
-                     config,
+                     config["sot"]["api_endpoint"],
                      data_add_interface,
                      result,
                      item="interface %s" % name,
@@ -134,7 +138,7 @@ def onboarding():
                 "address": ciscoconf.get_ipaddress(interface['name'])
             }
             send_request("addaddress",
-                         config,
+                         config["sot"]["api_endpoint"],
                          data_add_address,
                          result,
                          "address %s" % ciscoconf.get_ipaddress(interface['name']),
@@ -150,7 +154,7 @@ def onboarding():
             "site": args.site or config['onboarding']['defaults']['site']
         }
         send_request("addvlan",
-                     config,
+                     config["sot"]["api_endpoint"],
                      data_add_vlan,
                      result,
                      "vlan %s" % vid,
@@ -167,7 +171,7 @@ def onboarding():
                 "config": lag_data
             }
             send_request("updateinterface",
-                         config,
+                         config["sot"]["api_endpoint"],
                          newconfig,
                          result,
                          "interface %s" % name,
@@ -201,7 +205,7 @@ def onboarding():
                     "config": data
                 }
                 send_request("updateinterface",
-                             config,
+                             config["sot"]["api_endpoint"],
                              newconfig,
                              result,
                              "switchport %s" % name,
@@ -218,7 +222,7 @@ def onboarding():
                 "config": {"tags": tag_list}
             }
             send_request("updateinterface",
-                         config,
+                         config["sot"]["api_endpoint"],
                          newconfig,
                          result,
                          "tags %s" % interface['tags'],
@@ -233,7 +237,7 @@ def onboarding():
                 "config": new_addr
             }
             send_request("updatedevice",
-                         config,
+                         config["sot"]["api_endpoint"],
                          data_set_primary,
                          result,
                          "primary address %s" % ciscoconf.get_ipaddress(iface),

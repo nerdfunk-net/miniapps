@@ -6,18 +6,15 @@ files:
   prefixe:
     repo: network_design
     filename: defaults/defaults.yaml
+  sites:
+    repo: network_design
+    filename: defaults/defaults.yaml
 
 onboarding:
   defaults:
     interface:
       - Loopback0
       - Loopback100
-    devicetype: vios_router
-    role: pod_router
-    manufacturer: cisco
-    platform: cisco_ios
-    site: default
-    status: active
   tags:
     interfaces:
       ospf: "^ ip ospf"
