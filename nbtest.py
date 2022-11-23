@@ -4,7 +4,7 @@ import requests
 import json
 
 
-r = requests.get(url="http://127.0.0.1:8000/get/network_design/myfile")
+r = requests.get(url="http://127.0.0.1:8000/get/network_design/defaults/defaults.yaml")
 if r.status_code != 200:
     print ('got status code %i' % r.status_code)
 else:

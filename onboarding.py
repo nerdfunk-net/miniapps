@@ -2,10 +2,13 @@
 
 import argparse
 import json
+import sys
+import pytricia
+import yaml
+
 from helper.cisco import DeviceConfig
 from helper.config import read_config
-from helper.sot import send_request
-
+from helper.sot import send_request, get_file
 
 # set default config file to your needs
 default_config_file = "./config.yaml"
@@ -43,8 +46,36 @@ def onboarding():
         config_file = default_config_file
     config = read_config(config_file)
 
+    # get default values of prefixes
+    prefixe = None
+    prefixe_str = get_file(config["sot"]["api_endpoint"],
+                       config['files']['prefixe']['repo'],
+                       config['files']['prefixe']['filename'])
+
+    prefixe = None
+    try:
+        prefixe_yaml = yaml.safe_load(prefixe_str)
+        if prefixe_yaml is not None and 'prefixe' in prefixe_yaml:
+            prefixe = prefixe_yaml['prefixe']
+    except Exception as exc:
+        print ("got exception: %s" % exc)
+
     # read device config and parse it
     ciscoconf = DeviceConfig(args.deviceconfig)
+
+    # get primary address
+    primary_address = get_primary_address(config['onboarding']['defaults']['interface'],
+                                          ciscoconf)['config']['primary_ip4']
+
+    # get default values for primary ip
+    primary_defaults = get_prefix_defaults(prefixe, primary_address)
+
+    # check if we have all necessary defaults
+    list_def = ['site', 'role', 'devicetype', 'manufacturer', 'platform', 'status']
+    for i in list_def:
+        if i not in primary_defaults:
+            print ("%s missing. Please add %s to your default or set as arg" % (i, i))
+            sys.exit(-1)
 
     # set tags
     if 'tags' in config['onboarding']:
@@ -58,13 +89,14 @@ def onboarding():
     # add device to sot
     data_add_device = {
         "name": ciscoconf.get_hostname(),
-        "site": args.site or config['onboarding']['defaults']['site'],
-        "role": args.role or config['onboarding']['defaults']['role'],
-        "devicetype": args.devicetype or config['onboarding']['defaults']['devicetype'],
-        "manufacturer": args.manufacturer or config['onboarding']['defaults']['manufacturer'],
-        "platform": args.manufacturer or config['onboarding']['defaults']['platform'],
-        "status": args.status or config['onboarding']['defaults']['status']
+        "site": args.site or primary_defaults['site'],
+        "role": args.role or primary_defaults['role'],
+        "devicetype": args.devicetype or primary_defaults['devicetype'],
+        "manufacturer": args.manufacturer or primary_defaults['manufacturer'],
+        "platform": args.manufacturer or primary_defaults['platform'],
+        "status": args.status or primary_defaults['status']
     }
+
     # send request is our helper function to call the network abstraction layer
     send_request("adddevice",
                  config,
@@ -211,6 +243,49 @@ def onboarding():
     print(json.dumps(result, indent=4))
     # print (json.dumps(ciscoconf.get_config(),indent=4))
 
+
+def get_primary_address(interfaces, cisco_config):
+    for iface in interfaces:
+        if cisco_config.get_ipaddress(iface) is not None:
+            new_addr = {"primary_ip4": cisco_config.get_ipaddress(iface)}
+            data_set_primary = {
+                "name": cisco_config.get_hostname(),
+                "config": new_addr
+            }
+            return data_set_primary
+
+    return None
+
+
+def get_prefix_path(prefixe, ip):
+    prefix_path = []
+    pyt = pytricia.PyTricia()
+
+    # build pytricia tree
+    for prefix_ip in prefixe:
+        pyt.insert(prefix_ip, prefix_ip)
+
+    prefix = pyt.get(ip)
+    prefix_path.append(prefix)
+
+    parent = pyt.parent(prefix)
+    while (parent):
+        prefix_path.append(parent)
+        parent = pyt.parent(parent)
+    return prefix_path[::-1]
+
+def get_prefix_defaults(prefixe, ip):
+
+    if prefixe is None:
+        return {}
+
+    prefix_path = get_prefix_path(prefixe, ip)
+    defaults = {}
+
+    for prefix in prefix_path:
+        defaults.update(prefixe[prefix])
+
+    return defaults
 
 if __name__ == "__main__":
     onboarding()

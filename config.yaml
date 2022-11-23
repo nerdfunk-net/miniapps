@@ -2,11 +2,16 @@
 sot:
   api_endpoint: "http://127.0.0.1:8000"
 
+files:
+  prefixe:
+    repo: network_design
+    filename: defaults/defaults.yaml
+
 onboarding:
   defaults:
     interface:
-      - Loopback100
       - Loopback0
+      - Loopback100
     devicetype: vios_router
     role: pod_router
     manufacturer: cisco
