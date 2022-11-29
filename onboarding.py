@@ -151,7 +151,7 @@ def onboarding():
             "vid": vid,
             "name": vlans[vid]['name'],
             "status": "active",
-            "site": args.site or config['onboarding']['defaults']['site']
+            "site": args.site or primary_defaults['site']
         }
         send_request("addvlan",
                      config["sot"]["api_endpoint"],
@@ -186,7 +186,7 @@ def onboarding():
             if mode == 'access':
                 data = {"mode": "access",
                         "untagged": interface['switchport']['vlan'],
-                        "site": args.site or config['onboarding']['defaults']['site']
+                        "site": args.site or primary_defaults['site']
                         }
             elif mode == 'tagged':
                 # check if we have allowed vlans
@@ -195,7 +195,7 @@ def onboarding():
                     vlans = ",".join(interface['switchport']['vlan'])
                     data = {"mode": "tagged",
                             "tagged": vlans,
-                            "site": args.site or config['onboarding']['defaults']['site']
+                            "site": args.site or primary_defaults['site']
                             }
 
             if data is not None:
