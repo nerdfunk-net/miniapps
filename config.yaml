@@ -4,11 +4,14 @@ sot:
 
 files:
   prefixe:
-    repo: network_design
+    repo: sot_data
+    filename: defaults/prefixe.yaml
+  defaults:
+    repo: sot_data
     filename: defaults/defaults.yaml
   sites:
-    repo: network_design
-    filename: defaults/defaults.yaml
+    repo: sot_data
+    filename: defaults/sites.yaml
 
 onboarding:
   defaults:

@@ -8,7 +8,7 @@ import yaml
 
 from helper.cisco import DeviceConfig
 from helper.config import read_config
-from helper.sot import send_request, get_file
+from helper import sot
 
 # set default config file to your needs
 default_config_file = "./config.yaml"
@@ -49,13 +49,18 @@ def onboarding():
     config = read_config(config_file)
 
     # get default values of prefixes
+    prefixe = None
+
     repo = args.repo or config['files']['sites']['repo']
     filename = args.prefixe or config['files']['sites']['filename']
-    prefixe_str = get_file(config["sot"]["api_endpoint"],
-                           repo,
-                           filename)
+    prefixe_str = sot.get_file(config["sot"]["api_endpoint"],
+                               repo,
+                               filename)
 
-    prefixe = None
+    if prefixe_str is None:
+        print ("could not load prefixe")
+        sys.exit(-1)
+
     try:
         prefixe_yaml = yaml.safe_load(prefixe_str)
         if prefixe_yaml is not None and 'prefixe' in prefixe_yaml:

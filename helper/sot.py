@@ -25,8 +25,20 @@ def send_request(url, api_endpoint, json_data, result, item="", success=""):
                 result['logs'].append("%s updated; unknown reason")
             return False
 
-def get_file(api_endpoint, repo, filename):
-    r = requests.get(url="%s/get/%s/%s" % (api_endpoint, repo, filename))
+
+def get_file(api_endpoint, repo, filename, update=False):
+    """
+
+    Args:
+        api_endpoint:
+        repo:
+        filename:
+        update:
+
+    Returns:
+
+    """
+    r = requests.get(url="%s/get/%s/%s?update=%s" % (api_endpoint, repo, filename, update))
     if r.status_code != 200:
         print('got status code %i' % r.status_code)
     else:
@@ -35,5 +47,9 @@ def get_file(api_endpoint, repo, filename):
         if response["success"]:
             content = response['content'].replace("\\n", "\n")
             return content
-        return None
+        else:
+            print ("error getting file %s/%s" % (repo, filename))
+            print (response['reason'])
+
+    return None
 
