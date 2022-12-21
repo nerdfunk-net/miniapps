@@ -2,12 +2,15 @@ from ciscoconfparse import CiscoConfParse, IPv4Obj
 from netaddr import IPAddress
 import re
 import yaml
+import napalm
+import json
 
 
 MAPPING_YAML = './helper/mapping.yaml'
 
 # define some regular expressions we use later
 IPv4_REGEX = r"ip\saddress\s(\S+\s+\S+)"
+DHCP = r"ip\saddress\sdhcp"
 LAG = r" channel-group\s(\d+)\smode\s(\S+)$"
 OSPF_ROUTER_ID = r"^ router-id\s(\S+)"
 HOSTNAME = r"^hostname\s+(\S+)"
@@ -19,9 +22,12 @@ SWITCHPORT_VLAN = r"^ switchport access vlan (\d+)"
 TRUNK_VLANS = r"^ switchport trunk allowed vlan (\S+)"
 
 # the next regexes result in true or false
+# use the onboarding config to add other tags to the sot
+# eg. OSPF and DHCP tags are set using this config
 REGEXES = {'no_switchport': r"^ no switchport",
            'shutdown': r"^ shutdown",
-           'access': r"^ switchpport mode access"}
+           'access': r"^ switchpport mode access",
+           }
 
 
 class DeviceConfig:
@@ -35,17 +41,44 @@ class DeviceConfig:
     # the mapping includes the interface mapping eg. GigabitEther to 1000base-t
     __mapping = None
 
-    def __init__(self, filename):
+    def __init__(self):
         self.__config = {}
-        self.read_config(filename)
         self.read_mapping(MAPPING_YAML)
-        self.__deviceConfig = CiscoConfParse(self.__raw)
-        self.__parse_config()
+
 
     def read_config(self, filename):
         # read device config
         with open(filename, 'r') as file:
             self.__raw = file.read().splitlines()
+        self.__deviceConfig = CiscoConfParse(self.__raw)
+        self.__parse_config()
+
+    def get_device_config(self, host, username, password, devicetype="ios", port=22):
+        """
+        Login to device and get config
+        Args:
+            host:
+            username:
+            password:
+            devicetype:
+            port:
+
+        Returns:
+            None
+        """
+        driver = napalm.get_network_driver(devicetype)
+        device = driver(
+            hostname=host,
+            username=username,
+            password=password,
+            optional_args={"port": port},
+        )
+        device.open()
+        config = device.get_config(retrieve='running')['running']
+        # config is just one big line of text but ciscoconfparse needs lines
+        self.__raw = config.split("\n")
+        self.__deviceConfig = CiscoConfParse(self.__raw)
+        self.__parse_config()
 
     def read_mapping(self, filename):
         with open(filename) as f:
@@ -59,14 +92,10 @@ class DeviceConfig:
 
         """
 
-        """
-        get hostname
-        """
+        # get hostname
         self.__config["hostname"] = self.__deviceConfig.re_match_iter_typed(HOSTNAME, default='')
 
-        """
-        parse vlans
-        """
+        # parse vlans
         self.__config["vlan"] = {}
         vlan_cfgs = self.__deviceConfig.find_objects(r"^vlan")
         for vlan_cfg in vlan_cfgs:
@@ -96,11 +125,11 @@ class DeviceConfig:
             self.__config["interfaces"][intf_name] = {}
             self.__config["interfaces"][intf_name]['name'] = intf_name
             self.__config["interfaces"][intf_name]["description"] = "not set"
+            self.__config["interfaces"][intf_name]['type'] = self.get_interface_type(intf_name)
 
-            # get description and interface type
+            # get description
             for cmd in interface_cmd.re_search_children(r"^ description "):
                 self.__config["interfaces"][intf_name]["description"] = cmd.text.strip()[len("description "):]
-                self.__config["interfaces"][intf_name]['type'] = self.get_interface_type(intf_name)
 
             # check if port-channel
             for cmd in interface_cmd.re_search_children(CHANNEL_GROUP):
@@ -186,8 +215,8 @@ class DeviceConfig:
                     if rid != 'None':
                         self.__config["ospf"][ospf_process]['rid'] = rid
 
-        # print (json.dumps(self.__config["ospf"], indent=4))
-        # print (json.dumps(self.__config,indent=4))
+        # print(json.dumps(self.__config["ospf"], indent=4))
+        # print(json.dumps(self.__config,indent=4))
 
     def get_hostname(self):
         return self.__config["hostname"]
@@ -251,6 +280,14 @@ class DeviceConfig:
     def get_interface(self, interface):
         if interface in self.__config["interfaces"]:
             return self.__config["interfaces"][interface]
+        return None
+
+    def get_interface_by_address(self, ip):
+        for intf_name in self.__config["interfaces"]:
+            if 'ipv4' in self.__config["interfaces"][intf_name]:
+                if 'address' in self.__config["interfaces"][intf_name]['ipv4']:
+                    if self.__config["interfaces"][intf_name]['ipv4']['address'] == ip:
+                        return intf_name
         return None
 
     def get_interfaces(self):

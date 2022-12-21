@@ -13,12 +13,20 @@ files:
     repo: sot_data
     filename: defaults/sites.yaml
 
+logins:
+  lab:
+    username: lab
+    password: lab
+
 onboarding:
   defaults:
+    # the default primary interface we use to get the primary address
     interface:
       - Loopback0
       - Loopback100
   tags:
     interfaces:
+      # to set a tag configure tag name and regular expression here
       ospf: "^ ip ospf"
+      dhcp: "^ ip address dhcp"
 

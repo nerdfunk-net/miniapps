@@ -5,6 +5,8 @@ import json
 import sys
 import pytricia
 import yaml
+import getpass
+import socket
 
 from helper.cisco import DeviceConfig
 from helper.config import read_config
@@ -29,7 +31,13 @@ def onboarding():
     in our config file.
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('--deviceconfig', type=str, required=True)
+    parser.add_argument('--deviceconfig', type=str, required=False)
+    parser.add_argument('--device', type=str, required=False)
+    parser.add_argument('--os', type=str, default="ios", required=False)
+    parser.add_argument('--port', type=int, default=22, required=False)
+    parser.add_argument('--username', type=str, required=False)
+    parser.add_argument('--password', type=str, required=False)
+    parser.add_argument('--profile', type=str, required=False)
     parser.add_argument('--site', type=str, required=False)
     parser.add_argument('--role', type=str, required=False)
     parser.add_argument('--manufacturer', type=str, required=False)
@@ -51,14 +59,14 @@ def onboarding():
     # get default values of prefixes
     prefixe = None
 
-    repo = args.repo or config['files']['sites']['repo']
-    filename = args.prefixe or config['files']['sites']['filename']
+    repo = args.repo or config['files']['prefixe']['repo']
+    filename = args.prefixe or config['files']['prefixe']['filename']
     prefixe_str = sot.get_file(config["sot"]["api_endpoint"],
                                repo,
                                filename)
 
     if prefixe_str is None:
-        print ("could not load prefixe")
+        print("could not load prefixe")
         sys.exit(-1)
 
     try:
@@ -66,15 +74,60 @@ def onboarding():
         if prefixe_yaml is not None and 'prefixe' in prefixe_yaml:
             prefixe = prefixe_yaml['prefixe']
     except Exception as exc:
-        print ("got exception: %s" % exc)
+        print("got exception: %s" % exc)
         sys.exit(-1)
 
-    # read device config and parse it
-    ciscoconf = DeviceConfig(args.deviceconfig)
+    # either we read the device config or we
+    # connect to the device and get the current config
+
+    if args.deviceconfig is not None:
+        # read device config and parse it
+        ciscoconf = DeviceConfig()
+        ciscoconf.read_config(args.deviceconfig)
+    elif args.device is not None:
+        # check what login to use
+        username = None
+        password = None
+
+        if args.profile is not None:
+            if args.profile in config['logins']:
+                if 'username' in config['logins'][args.profile]:
+                    username = config['logins'][args.profile]['username']
+                if 'password' in config['logins'][args.profile]:
+                    password = config['logins'][args.profile]['password']
+            else:
+                print("Unknown profile %s" % args.profile)
+                sys.exit(-1)
+
+        if username is None:
+            if args.username is None:
+                username = input("Username (%s): " % getpass.getuser())
+                if username == "":
+                    username = getpass.getuser()
+            else:
+                username = args.username
+
+        if password is None and args.password is None:
+            password = getpass.getpass(prompt="Enter password for %s: " % username)
+        else:
+            if args.password is not None:
+                password = args.password
+
+        os = args.os
+        port = args.port
+        ciscoconf = DeviceConfig()
+        ciscoconf.get_device_config(args.device, username, password, os, port)
 
     # get primary address
-    primary_address = get_primary_address(config['onboarding']['defaults']['interface'],
-                                          ciscoconf)['config']['primary_ip4']
+    # the primary address is the ip address of the 'default' interface.
+    # in most cases this is the Loopback or the Management interface
+    # the interfaces to look at can be configured in our onboarding config
+    pa = get_primary_address(config['onboarding']['defaults']['interface'], ciscoconf)
+    if pa is not None:
+        primary_address = pa['config']['primary_ip4']
+    else:
+        # no primary interface found. Get IP of the device
+        primary_address = socket.gethostbyname(args.device)
 
     # get default values for primary ip
     primary_defaults = get_prefix_defaults(prefixe, primary_address)
@@ -107,7 +160,7 @@ def onboarding():
     }
 
     # send request is our helper function to call the network abstraction layer
-    send_request("adddevice",
+    sot.send_request("adddevice",
                  config["sot"]["api_endpoint"],
                  data_add_device,
                  result,
@@ -129,7 +182,7 @@ def onboarding():
             "enabled": enabled,
             "description": interface['description']
         }
-        send_request("addinterface",
+        sot.send_request("addinterface",
                      config["sot"]["api_endpoint"],
                      data_add_interface,
                      result,
@@ -142,7 +195,7 @@ def onboarding():
                 "interface": name,
                 "address": ciscoconf.get_ipaddress(interface['name'])
             }
-            send_request("addaddress",
+            sot.send_request("addaddress",
                          config["sot"]["api_endpoint"],
                          data_add_address,
                          result,
@@ -209,7 +262,7 @@ def onboarding():
                     "interface": name,
                     "config": data
                 }
-                send_request("updateinterface",
+                sot.send_request("updateinterface",
                              config["sot"]["api_endpoint"],
                              newconfig,
                              result,
@@ -226,28 +279,31 @@ def onboarding():
                 "interface": name,
                 "config": {"tags": tag_list}
             }
-            send_request("updateinterface",
+            sot.send_request("updateinterface",
                          config["sot"]["api_endpoint"],
                          newconfig,
                          result,
                          "tags %s" % interface['tags'],
                          "set in sot")
 
-    # set primary IP of device
-    for iface in config['onboarding']['defaults']['interface']:
-        if ciscoconf.get_ipaddress(iface) is not None:
-            new_addr = {"primary_ip4": ciscoconf.get_ipaddress(iface)}
-            data_set_primary = {
-                "name": ciscoconf.get_hostname(),
-                "config": new_addr
-            }
-            send_request("updatedevice",
+    # set primary IP/Interface of device
+    iface = ciscoconf.get_interface_by_address(primary_address)
+    new_addr = {"primary_ip4": primary_address,
+                "interface": iface}
+
+    if new_addr is not None and iface is not None:
+        data_set_primary = {
+            "name": ciscoconf.get_hostname(),
+            "config": new_addr
+        }
+        sot.send_request("updatedevice",
                          config["sot"]["api_endpoint"],
                          data_set_primary,
                          result,
                          "primary address %s" % ciscoconf.get_ipaddress(iface),
                          "updated in sot")
-            break
+    else:
+        print("no primary interface found; device is accessible only with hostname/ip you used")
 
     print(json.dumps(result, indent=4))
     # print (json.dumps(ciscoconf.get_config(),indent=4))
@@ -257,11 +313,11 @@ def get_primary_address(interfaces, cisco_config):
     for iface in interfaces:
         if cisco_config.get_ipaddress(iface) is not None:
             new_addr = {"primary_ip4": cisco_config.get_ipaddress(iface)}
-            data_set_primary = {
+            return {
                 "name": cisco_config.get_hostname(),
-                "config": new_addr
+                "config": new_addr,
+                "interface": iface
             }
-            return data_set_primary
 
     return None
 
@@ -283,6 +339,7 @@ def get_prefix_path(prefixe, ip):
         parent = pyt.parent(parent)
     return prefix_path[::-1]
 
+
 def get_prefix_defaults(prefixe, ip):
 
     if prefixe is None:
@@ -295,6 +352,7 @@ def get_prefix_defaults(prefixe, ip):
         defaults.update(prefixe[prefix])
 
     return defaults
+
 
 if __name__ == "__main__":
     onboarding()

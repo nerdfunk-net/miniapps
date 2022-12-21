@@ -34,9 +34,7 @@ def add_device():
     config = read_config(config_file)
 
     # we use a dict to store our results
-    result = {}
-    result['logs'] = []
-    result['success'] = []
+    result = {'logs': [], 'success': []}
 
     data_add_device = {
         "name": args.device,
