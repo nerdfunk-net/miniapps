@@ -46,8 +46,8 @@ def add_device():
     }
 
     # please notice: check config.yaml and check if a // is not part of the URL!
-    url_add_debice = "%s/onboarding/adddevice" % config["sot"]["api_endpoint"]
-    r = requests.post(url=url_add_debice, json=data_add_device)
+    url_add_device = "%s/onboarding/adddevice" % config["sot"]["api_endpoint"]
+    r = requests.post(url=url_add_device, json=data_add_device)
 
     if r.status_code != 200:
         result['logs'].append('got status code %i' % r.status_code)

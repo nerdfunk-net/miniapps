@@ -91,10 +91,8 @@ def onboarding():
 
         if args.profile is not None:
             if args.profile in config['logins']:
-                if 'username' in config['logins'][args.profile]:
-                    username = config['logins'][args.profile]['username']
-                if 'password' in config['logins'][args.profile]:
-                    password = config['logins'][args.profile]['password']
+                username = config['logins'].get(args.profile).get('username')
+                password = config['logins'].get(args.profile).get(username)
             else:
                 print("Unknown profile %s" % args.profile)
                 sys.exit(-1)
