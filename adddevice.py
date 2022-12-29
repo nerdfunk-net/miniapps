@@ -118,5 +118,6 @@ def add_device():
 
     print (json.dumps(result, indent=4))
 
+
 if __name__ == "__main__":
     add_device()

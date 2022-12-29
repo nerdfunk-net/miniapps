@@ -36,7 +36,7 @@ def get_file(api_endpoint, repo, filename, update=False):
         update:
 
     Returns:
-
+        content of file
     """
     r = requests.get(url="%s/get/%s/%s?update=%s" % (api_endpoint, repo, filename, update))
     if r.status_code != 200:

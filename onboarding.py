@@ -18,7 +18,7 @@ default_config_file = "./config.yaml"
 
 def onboarding():
     """
-    main function that reads config and add device including interfaces, vlans
+    reads config and adds device including interfaces, vlans
     and other necessary items
 
     Returns: -
@@ -134,7 +134,7 @@ def onboarding():
     list_def = ['site', 'role', 'devicetype', 'manufacturer', 'platform', 'status']
     for i in list_def:
         if i not in primary_defaults:
-            print ("%s missing. Please add %s to your default or set as arg" % (i, i))
+            print("%s missing. Please add %s to your default or set as arg" % (i, i))
             sys.exit(-1)
 
     # set tags
@@ -148,7 +148,7 @@ def onboarding():
 
     # add device to sot
     data_add_device = {
-        "name": ciscoconf.get_hostname(),
+        "name": ciscoconf.get_fqdn(),
         "site": args.site or primary_defaults['site'],
         "role": args.role or primary_defaults['role'],
         "devicetype": args.devicetype or primary_defaults['devicetype'],
@@ -157,13 +157,13 @@ def onboarding():
         "status": args.status or primary_defaults['status']
     }
 
-    # send request is our helper function to call the network abstraction layer
+    # send_request is our helper function to call the network abstraction layer
     sot.send_request("adddevice",
-                 config["sot"]["api_endpoint"],
-                 data_add_device,
-                 result,
-                 item="device %s" % ciscoconf.get_hostname(),
-                 success="added to sot")
+                     config["sot"]["api_endpoint"],
+                     data_add_device,
+                     result,
+                     item="device %s" % ciscoconf.get_fqdn(),
+                     success="added to sot")
 
     # add Interfaces and IP addresses
     interfaces = ciscoconf.get_interfaces()
@@ -174,31 +174,31 @@ def onboarding():
         else:
             enabled = True
         data_add_interface = {
-            "name": ciscoconf.get_hostname(),
+            "name": ciscoconf.get_fqdn(),
             "interface": name,
             "interfacetype": interface['type'],
             "enabled": enabled,
             "description": interface['description']
         }
         sot.send_request("addinterface",
-                     config["sot"]["api_endpoint"],
-                     data_add_interface,
-                     result,
-                     item="interface %s" % name,
-                     success="added to sot")
+                         config["sot"]["api_endpoint"],
+                         data_add_interface,
+                         result,
+                         item="interface %s" % name,
+                         success="added to sot")
 
         if ciscoconf.get_ipaddress(interface['name']) is not None:
             data_add_address = {
-                "name": ciscoconf.get_hostname(),
+                "name": ciscoconf.get_fqdn(),
                 "interface": name,
                 "address": ciscoconf.get_ipaddress(interface['name'])
             }
             sot.send_request("addaddress",
-                         config["sot"]["api_endpoint"],
-                         data_add_address,
-                         result,
-                         "address %s" % ciscoconf.get_ipaddress(interface['name']),
-                         "added to sot")
+                             config["sot"]["api_endpoint"],
+                             data_add_address,
+                             result,
+                             "address %s" % ciscoconf.get_ipaddress(interface['name']),
+                             "added to sot")
 
     # add vlans
     vlans = ciscoconf.get_vlans()
@@ -222,7 +222,7 @@ def onboarding():
         if 'lag' in interface:
             lag_data = {"lag": "Port-channel %s" % interface["lag"]["group"]}
             newconfig = {
-                "name": ciscoconf.get_hostname(),
+                "name": ciscoconf.get_fqdn(),
                 "interface": name,
                 "config": lag_data
             }
@@ -256,16 +256,16 @@ def onboarding():
 
             if data is not None:
                 newconfig = {
-                    "name": ciscoconf.get_hostname(),
+                    "name": ciscoconf.get_fqdn(),
                     "interface": name,
                     "config": data
                 }
                 sot.send_request("updateinterface",
-                             config["sot"]["api_endpoint"],
-                             newconfig,
-                             result,
-                             "switchport %s" % name,
-                             "updated in sot")
+                                 config["sot"]["api_endpoint"],
+                                 newconfig,
+                                 result,
+                                 "switchport %s" % name,
+                                 "updated in sot")
 
     # setting tags
     for name in interfaces:
@@ -273,16 +273,16 @@ def onboarding():
         if 'tags' in interface:
             tag_list = ",".join(interface['tags'])
             newconfig = {
-                "name": ciscoconf.get_hostname(),
+                "name": ciscoconf.get_fqdn(),
                 "interface": name,
                 "config": {"tags": tag_list}
             }
             sot.send_request("updateinterface",
-                         config["sot"]["api_endpoint"],
-                         newconfig,
-                         result,
-                         "tags %s" % interface['tags'],
-                         "set in sot")
+                             config["sot"]["api_endpoint"],
+                             newconfig,
+                             result,
+                             "tags %s" % interface['tags'],
+                             "set in sot")
 
     # set primary IP/Interface of device
     iface = ciscoconf.get_interface_by_address(primary_address)
@@ -291,7 +291,7 @@ def onboarding():
 
     if new_addr is not None and iface is not None:
         data_set_primary = {
-            "name": ciscoconf.get_hostname(),
+            "name": ciscoconf.get_fqdn(),
             "config": new_addr
         }
         sot.send_request("updatedevice",
@@ -312,7 +312,7 @@ def get_primary_address(interfaces, cisco_config):
         if cisco_config.get_ipaddress(iface) is not None:
             new_addr = {"primary_ip4": cisco_config.get_ipaddress(iface)}
             return {
-                "name": cisco_config.get_hostname(),
+                "name": cisco_config.get_fqdn(),
                 "config": new_addr,
                 "interface": iface
             }
@@ -339,7 +339,6 @@ def get_prefix_path(prefixe, ip):
 
 
 def get_prefix_defaults(prefixe, ip):
-
     if prefixe is None:
         return {}
 

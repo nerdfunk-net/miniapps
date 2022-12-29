@@ -14,6 +14,7 @@ DHCP = r"ip\saddress\sdhcp"
 LAG = r" channel-group\s(\d+)\smode\s(\S+)$"
 OSPF_ROUTER_ID = r"^ router-id\s(\S+)"
 HOSTNAME = r"^hostname\s+(\S+)"
+DOMAIN_NAME = r"^ip\s+domain\s+name\s+(\S+)"
 CHANNEL_GROUP = r"^ channel-group"
 VLAN_NAME = r"^ name (\S+)"
 ACCESS = r"^ switchport mode access"
@@ -44,7 +45,6 @@ class DeviceConfig:
     def __init__(self):
         self.__config = {}
         self.read_mapping(MAPPING_YAML)
-
 
     def read_config(self, filename):
         # read device config
@@ -94,6 +94,9 @@ class DeviceConfig:
 
         # get hostname
         self.__config["hostname"] = self.__deviceConfig.re_match_iter_typed(HOSTNAME, default='')
+        # get domain name
+        self.__config["domain"] = self.__deviceConfig.re_match_iter_typed(DOMAIN_NAME, default='')
+        self.__config["fqdn"] = "%s.%s" % (self.__config["hostname"], self.__config["domain"])
 
         # parse vlans
         self.__config["vlan"] = {}
@@ -220,6 +223,9 @@ class DeviceConfig:
 
     def get_hostname(self):
         return self.__config["hostname"]
+
+    def get_fqdn(self):
+        return self.__config["fqdn"]
 
     def get_ipaddress(self, interface, result='cidr'):
         if interface not in self.__config["interfaces"]:
