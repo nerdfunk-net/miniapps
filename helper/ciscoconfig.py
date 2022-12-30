@@ -46,37 +46,10 @@ class DeviceConfig:
         self.__config = {}
         self.read_mapping(MAPPING_YAML)
 
-    def read_config(self, filename):
-        # read device config
-        with open(filename, 'r') as file:
-            self.__raw = file.read().splitlines()
-        self.__deviceConfig = CiscoConfParse(self.__raw)
-        self.__parse_config()
-
-    def get_device_config(self, host, username, password, devicetype="ios", port=22):
-        """
-        Login to device and get config
-        Args:
-            host:
-            username:
-            password:
-            devicetype:
-            port:
-
-        Returns:
-            None
-        """
-        driver = napalm.get_network_driver(devicetype)
-        device = driver(
-            hostname=host,
-            username=username,
-            password=password,
-            optional_args={"port": port},
-        )
-        device.open()
-        config = device.get_config(retrieve='running')['running']
-        # config is just one big line of text but ciscoconfparse needs lines
-        self.__raw = config.split("\n")
+    def __init__(self, raw):
+        self.__raw = raw
+        self.__config = {}
+        self.read_mapping(MAPPING_YAML)
         self.__deviceConfig = CiscoConfParse(self.__raw)
         self.__parse_config()
 

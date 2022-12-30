@@ -13,10 +13,15 @@ files:
     repo: sot_data
     filename: defaults/sites.yaml
 
-logins:
-  lab:
-    username: lab
-    password: lab
+# default logins to connect to the devices
+# these accounts are not stored in nautobot
+accounts:
+    devices:
+        # profile name
+        default:
+            username: lab
+            # encrypted and base64 encodes password
+            password: "Z0FBQUFBQmpwS2Zjd3l5ZEYyUjBCT0pydS1GZDNkaE83UG5QbmpIWGNKZF9SOGxaWEladzlCYm9IVDRxQnlRejl3aU9oQml3bVdsX0hFeEduOHBfajJzMEo1Yl9Fb3Z3eHc9PQ=="
 
 onboarding:
   defaults:

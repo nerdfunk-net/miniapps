@@ -4,7 +4,7 @@ import argparse
 import json
 import yaml
 from helper import sot
-from helper.config import read_config
+from helper import helper
 
 # set default config file to your needs
 default_config_file = "./config.yaml"
@@ -182,7 +182,7 @@ if __name__ == "__main__":
         config_file = args.config
     else:
         config_file = default_config_file
-    config = read_config(config_file)
+    config = helper.read_config(config_file)
 
     if args.repo:
         config['files']['sites']['repo'] = args.repo

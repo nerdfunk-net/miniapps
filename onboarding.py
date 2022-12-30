@@ -7,125 +7,48 @@ import pytricia
 import yaml
 import getpass
 import socket
+import os
+import json
+from dotenv import load_dotenv, dotenv_values
+from helper.ciscoconfig import DeviceConfig
+from helper import helper
+from helper import devicemanagement as dm
+from collections import defaultdict
 
-from helper.cisco import DeviceConfig
-from helper.config import read_config
-from helper import sot
 
 # set default config file to your needs
 default_config_file = "./config.yaml"
 
 
-def onboarding():
-    """
-    reads config and adds device including interfaces, vlans
-    and other necessary items
+def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
 
-    Returns: -
+    # set default values
+    # we use a defaultdict to store our results
+    result = defaultdict(dict)
 
-    """
+    # get cisco config object and parse config
+    ciscoconf = DeviceConfig(raw_device_config)
 
-    """
-    There is only on mandatory argument. We need the device config.
-    The other arguments can override the default values configured
-    in our config file.
-    """
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--deviceconfig', type=str, required=False)
-    parser.add_argument('--device', type=str, required=False)
-    parser.add_argument('--os', type=str, default="ios", required=False)
-    parser.add_argument('--port', type=int, default=22, required=False)
-    parser.add_argument('--username', type=str, required=False)
-    parser.add_argument('--password', type=str, required=False)
-    parser.add_argument('--profile', type=str, required=False)
-    parser.add_argument('--site', type=str, required=False)
-    parser.add_argument('--role', type=str, required=False)
-    parser.add_argument('--manufacturer', type=str, required=False)
-    parser.add_argument('--devicetype', type=str, required=False)
-    parser.add_argument('--status', type=str, required=False)
-    parser.add_argument('--config', type=str, required=False)
-    parser.add_argument('--repo', type=str, required=False)
-    parser.add_argument('--prefixe', type=str, required=False)
-
-    args = parser.parse_args()
-
-    # read config
-    if args.config is not None:
-        config_file = args.config
+    # we need the fqdn of the device
+    if device_facts is not None and 'fqdn' in device_facts:
+        device_fqdn = device_facts['fqdn']
     else:
-        config_file = default_config_file
-    config = read_config(config_file)
+        # get fqdn from config instead
+        device_fqdn = ciscoconf.get_fqdn()
 
-    # get default values of prefixes
-    prefixe = None
-
-    repo = args.repo or config['files']['prefixe']['repo']
-    filename = args.prefixe or config['files']['prefixe']['filename']
-    prefixe_str = sot.get_file(config["sot"]["api_endpoint"],
-                               repo,
-                               filename)
-
-    if prefixe_str is None:
-        print("could not load prefixe")
-        sys.exit(-1)
-
-    try:
-        prefixe_yaml = yaml.safe_load(prefixe_str)
-        if prefixe_yaml is not None and 'prefixe' in prefixe_yaml:
-            prefixe = prefixe_yaml['prefixe']
-    except Exception as exc:
-        print("got exception: %s" % exc)
-        sys.exit(-1)
-
-    # either we read the device config or we
-    # connect to the device and get the current config
-
-    if args.deviceconfig is not None:
-        # read device config and parse it
-        ciscoconf = DeviceConfig()
-        ciscoconf.read_config(args.deviceconfig)
-    elif args.device is not None:
-        # check what login to use
-        username = None
-        password = None
-
-        if args.profile is not None:
-            if args.profile in config['logins']:
-                username = config['logins'].get(args.profile).get('username')
-                password = config['logins'].get(args.profile).get(username)
-            else:
-                print("Unknown profile %s" % args.profile)
-                sys.exit(-1)
-
-        if username is None:
-            if args.username is None:
-                username = input("Username (%s): " % getpass.getuser())
-                if username == "":
-                    username = getpass.getuser()
-            else:
-                username = args.username
-
-        if password is None and args.password is None:
-            password = getpass.getpass(prompt="Enter password for %s: " % username)
-        else:
-            if args.password is not None:
-                password = args.password
-
-        os = args.os
-        port = args.port
-        ciscoconf = DeviceConfig()
-        ciscoconf.get_device_config(args.device, username, password, os, port)
-
-    # get primary address
+    # get primary address of the device
     # the primary address is the ip address of the 'default' interface.
     # in most cases this is the Loopback or the Management interface
-    # the interfaces to look at can be configured in our onboarding config
-    pa = get_primary_address(config['onboarding']['defaults']['interface'], ciscoconf)
+    # the interfaces we look at can be configured in our onboarding config
+    pa = get_primary_address(device_fqdn,
+                             onboarding_config['onboarding']['defaults']['interface'],
+                             ciscoconf)
     if pa is not None:
         primary_address = pa['config']['primary_ip4']
     else:
         # no primary interface found. Get IP of the device
-        primary_address = socket.gethostbyname(args.device)
+        print("no primary ip found using %s" % device_facts['args.device'])
+        primary_address = socket.gethostbyname(device_facts['args.device'])
 
     # get default values for primary ip
     primary_defaults = get_prefix_defaults(prefixe, primary_address)
@@ -135,20 +58,17 @@ def onboarding():
     for i in list_def:
         if i not in primary_defaults:
             print("%s missing. Please add %s to your default or set as arg" % (i, i))
-            sys.exit(-1)
+            return result
 
     # set tags
-    if 'tags' in config['onboarding']:
-        if 'interfaces' in config['onboarding']['tags']:
-            for tag in config['onboarding']['tags']['interfaces']:
-                ciscoconf.tag_interfaces(tag, config['onboarding']['tags']['interfaces'][tag])
-
-    # we use a dict to store our results
-    result = {'logs': [], 'success': []}
+    if 'tags' in onboarding_config['onboarding']:
+        if 'interfaces' in onboarding_config['onboarding']['tags']:
+            for tag in onboarding_config['onboarding']['tags']['interfaces']:
+                ciscoconf.tag_interfaces(tag, onboarding_config['onboarding']['tags']['interfaces'][tag])
 
     # add device to sot
     data_add_device = {
-        "name": ciscoconf.get_fqdn(),
+        "name": device_fqdn,
         "site": args.site or primary_defaults['site'],
         "role": args.role or primary_defaults['role'],
         "devicetype": args.devicetype or primary_defaults['devicetype'],
@@ -158,87 +78,60 @@ def onboarding():
     }
 
     # send_request is our helper function to call the network abstraction layer
-    sot.send_request("adddevice",
-                     config["sot"]["api_endpoint"],
-                     data_add_device,
-                     result,
-                     item="device %s" % ciscoconf.get_fqdn(),
-                     success="added to sot")
+    result[device_fqdn]['device'] = helper.send_request("adddevice",
+                                                        onboarding_config["sot"]["api_endpoint"],
+                                                        data_add_device)
 
-    # add Interfaces and IP addresses
+    """
+    loop through all interfaces and update/add item to sot
+    """
     interfaces = ciscoconf.get_interfaces()
     for name in interfaces:
+
+        # add interface to sot
         interface = interfaces[name]
         if 'shutdown' in interface:
             enabled = False
         else:
             enabled = True
         data_add_interface = {
-            "name": ciscoconf.get_fqdn(),
+            "name": device_fqdn,
             "interface": name,
             "interfacetype": interface['type'],
             "enabled": enabled,
             "description": interface['description']
         }
-        sot.send_request("addinterface",
-                         config["sot"]["api_endpoint"],
-                         data_add_interface,
-                         result,
-                         item="interface %s" % name,
-                         success="added to sot")
+        result[device_fqdn][name] = helper.send_request("addinterface",
+                                                        onboarding_config["sot"]["api_endpoint"],
+                                                        data_add_interface)
 
+        # add IP address to interface
         if ciscoconf.get_ipaddress(interface['name']) is not None:
+            addr = ciscoconf.get_ipaddress(interface['name'])
             data_add_address = {
-                "name": ciscoconf.get_fqdn(),
+                "name": device_fqdn,
                 "interface": name,
-                "address": ciscoconf.get_ipaddress(interface['name'])
+                "address": addr
             }
-            sot.send_request("addaddress",
-                             config["sot"]["api_endpoint"],
-                             data_add_address,
-                             result,
-                             "address %s" % ciscoconf.get_ipaddress(interface['name']),
-                             "added to sot")
+            result[device_fqdn][name][addr] = helper.send_request("addaddress",
+                                                                  onboarding_config["sot"]["api_endpoint"],
+                                                                  data_add_address)
 
-    # add vlans
-    vlans = ciscoconf.get_vlans()
-    for vid in vlans:
-        data_add_vlan = {
-            "vid": vid,
-            "name": vlans[vid]['name'],
-            "status": "active",
-            "site": args.site or primary_defaults['site']
-        }
-        send_request("addvlan",
-                     config["sot"]["api_endpoint"],
-                     data_add_vlan,
-                     result,
-                     "vlan %s" % vid,
-                     "added to sot")
-
-    # check if we have Etherchannels
-    for name in interfaces:
-        interface = interfaces[name]
+        # check if we have Etherchannels
         if 'lag' in interface:
             lag_data = {"lag": "Port-channel %s" % interface["lag"]["group"]}
             newconfig = {
-                "name": ciscoconf.get_fqdn(),
+                "name": device_fqdn,
                 "interface": name,
                 "config": lag_data
             }
-            send_request("updateinterface",
-                         config["sot"]["api_endpoint"],
-                         newconfig,
-                         result,
-                         "interface %s" % name,
-                         "updated in sot")
-
-    # setting switchport
-    for name in interfaces:
-        interface = interfaces[name]
-        data = None
+            result[device_fqdn][name]['portchannel'] = send_request("updateinterface",
+                                                                    onboarding_config["sot"]["api_endpoint"],
+                                                                    newconfig)
+        # setting switchport
         if 'switchport' in interface:
             mode = interface['switchport']['mode']
+            data = {}
             if mode == 'access':
                 data = {"mode": "access",
                         "untagged": interface['switchport']['vlan'],
@@ -253,36 +146,40 @@ def onboarding():
                             "tagged": vlans,
                             "site": args.site or primary_defaults['site']
                             }
-
             if data is not None:
                 newconfig = {
-                    "name": ciscoconf.get_fqdn(),
+                    "name": device_fqdn,
                     "interface": name,
                     "config": data
                 }
-                sot.send_request("updateinterface",
-                                 config["sot"]["api_endpoint"],
-                                 newconfig,
-                                 result,
-                                 "switchport %s" % name,
-                                 "updated in sot")
+                result[device_fqdn][name]['switchport'] = helper.send_request("updateinterface",
+                                                                              onboarding_config["sot"]["api_endpoint"],
+                                                                              newconfig)
 
-    # setting tags
-    for name in interfaces:
-        interface = interfaces[name]
+        # setting tags of interface
         if 'tags' in interface:
             tag_list = ",".join(interface['tags'])
             newconfig = {
-                "name": ciscoconf.get_fqdn(),
+                "name": device_fqdn,
                 "interface": name,
                 "config": {"tags": tag_list}
             }
-            sot.send_request("updateinterface",
-                             config["sot"]["api_endpoint"],
-                             newconfig,
-                             result,
-                             "tags %s" % interface['tags'],
-                             "set in sot")
+            result[device_fqdn][name]['tags'] = helper.send_request("updateinterface",
+                                                                    onboarding_config["sot"]["api_endpoint"],
+                                                                    newconfig)
+
+    # add vlans
+    vlans = ciscoconf.get_vlans()
+    for vid in vlans:
+        data_add_vlan = {
+            "vid": vid,
+            "name": vlans[vid]['name'],
+            "status": "active",
+            "site": args.site or primary_defaults['site']
+        }
+        result[device_fqdn]['vlan'][vid] = send_request("addvlan",
+                                                        onboarding_config["sot"]["api_endpoint"],
+                                                        data_add_vlan)
 
     # set primary IP/Interface of device
     iface = ciscoconf.get_interface_by_address(primary_address)
@@ -291,28 +188,26 @@ def onboarding():
 
     if new_addr is not None and iface is not None:
         data_set_primary = {
-            "name": ciscoconf.get_fqdn(),
+            "name": device_fqdn,
             "config": new_addr
         }
-        sot.send_request("updatedevice",
-                         config["sot"]["api_endpoint"],
-                         data_set_primary,
-                         result,
-                         "primary address %s" % ciscoconf.get_ipaddress(iface),
-                         "updated in sot")
+        result[device_fqdn]['primary_ip'] = helper.send_request("updatedevice",
+                            onboarding_config["sot"]["api_endpoint"],
+                            data_set_primary)
     else:
-        print("no primary interface found; device is accessible only with hostname/ip you used")
+        result[device_fqdn]['primary_ip'] = \
+            "no primary interface found; device is accessible only with hostname/ip you used"
 
-    print(json.dumps(result, indent=4))
-    # print (json.dumps(ciscoconf.get_config(),indent=4))
+    #print(json.dumps(dict(result),indent=4))
+    return result
 
 
-def get_primary_address(interfaces, cisco_config):
+def get_primary_address(device_fqdn, interfaces, cisco_config):
     for iface in interfaces:
         if cisco_config.get_ipaddress(iface) is not None:
             new_addr = {"primary_ip4": cisco_config.get_ipaddress(iface)}
             return {
-                "name": cisco_config.get_fqdn(),
+                "name": device_fqdn,
                 "config": new_addr,
                 "interface": iface
             }
@@ -351,5 +246,182 @@ def get_prefix_defaults(prefixe, ip):
     return defaults
 
 
+def get_device_config(device, args):
+
+    # default values
+    device_facts = None
+    username = None
+    password = None
+
+    # either we read the device config from a file or we
+    # connect to the device and get the running config
+    if args.deviceconfig is not None:
+        # read device config from file
+        with open(args.deviceconfig, 'r') as file:
+            raw_config = file.read().splitlines()
+    elif device is not None:
+        """
+        read the running config from the device
+        we need the username and password.
+        credentials are either configuted in our config
+        or must be entered by the user
+        """
+        if args.profile is not None:
+            profile = args.profile
+            account = helper.get_profile(onboarding_config, profile)
+            if not account['success']:
+                print("could not retrieve username and password")
+            else:
+                username = account.get('username')
+                password = account.get('password')
+        if username is None:
+            username = input("Username (%s): " % getpass.getuser())
+            if username == "":
+                username = getpass.getuser()
+        elif args.username is not None:
+            username = args.username
+
+        if password is None and args.password is None:
+            password = getpass.getpass(prompt="Enter password for %s: " % username)
+        else:
+            if args.password is not None:
+                password = args.password
+
+        # open connection to device
+        conn = dm.open_connection(device,
+                                  username,
+                                  password,
+                                  args.platform,
+                                  args.port)
+
+        # check connection
+        if conn is None:
+            print("could not get connection to device; check properties like platform")
+            sys.exit()
+
+        device_facts = dm.get_facts(conn)
+        device_facts.update({'args.device': device})
+        device_config = dm.get_config(conn, "running-config").splitlines()
+        conn.close()
+
+    else:
+        print("either device or deviceconfig must be specified")
+        sys.exit(-1)
+
+    return {
+        "device_facts": device_facts,
+        "device_config": device_config,
+    }
+
+
 if __name__ == "__main__":
-    onboarding()
+
+    """
+    There is only on mandatory argument. We need the device config or the device.
+    The other arguments can override the default values configured
+    in our config file.
+    """
+    parser = argparse.ArgumentParser()
+    # the user can enter a different config file
+    parser.add_argument('--config', type=str, required=False)
+    # we need the config. The config can be read or retrieved
+    # from the device
+    parser.add_argument('--deviceconfig', type=str, required=False)
+    parser.add_argument('--device', type=str, required=False)
+    parser.add_argument('--port', type=int, default=22, required=False)
+    # we need username and password if the config is retrieved by the device
+    # credentials can be configured using a profile
+    # have a look at the config file
+    parser.add_argument('--username', type=str, required=False)
+    parser.add_argument('--password', type=str, required=False)
+    parser.add_argument('--profile', type=str, required=False)
+    # we need some mandatory properties
+    # either these properties are part of the prefixe
+    parser.add_argument('--prefixe', type=str, required=False)
+    parser.add_argument('--repo', type=str, required=False)
+    # or the properties must be specified using the following args
+    parser.add_argument('--site', type=str, required=False)
+    parser.add_argument('--role', type=str, required=False)
+    parser.add_argument('--manufacturer', type=str, required=False)
+    parser.add_argument('--devicetype', type=str, required=False)
+    parser.add_argument('--platform', type=str, default="ios", required=False)
+    parser.add_argument('--status', type=str, required=False)
+
+    args = parser.parse_args()
+
+    # set defaults
+    prefixe = None
+
+    # Get the path to the directory this file is in
+    BASEDIR = os.path.abspath(os.path.dirname(__file__))
+    # Connect the path with the '.env' file name
+    load_dotenv(os.path.join(BASEDIR, '.env'))
+    # you can get the env variable by using var = os.getenv('varname')
+
+    # read onboarding config
+    if args.config is not None:
+        config_file = args.config
+    else:
+        config_file = default_config_file
+    onboarding_config = helper.read_config(config_file)
+
+    # get default values of prefixes. This is needed only once
+    repo = args.repo or onboarding_config['files']['prefixe']['repo']
+    filename = args.prefixe or onboarding_config['files']['prefixe']['filename']
+    prefixe_str = helper.get_file(onboarding_config["sot"]["api_endpoint"],
+                                  repo,
+                                  filename)
+    if prefixe_str is None:
+        print("could not load prefixe")
+        sys.exit(-1)
+
+    try:
+        prefixe_yaml = yaml.safe_load(prefixe_str)
+        if prefixe_yaml is not None and 'prefixe' in prefixe_yaml:
+            prefixe = prefixe_yaml['prefixe']
+    except Exception as exc:
+        print("got exception: %s" % exc)
+        sys.exit(-1)
+
+    """
+    we have the static values. Now get the config of each device and call
+    onboarding.
+    """
+
+    result = defaultdict(dict)
+    if ',' in args.device:
+        devices = args.device.split(',')
+        for device in devices:
+            print("processing %s" % device)
+            values = get_device_config(device, args)
+            ret = onboarding(values['device_facts'],
+                             values['device_config'],
+                             onboarding_config,
+                             prefixe)
+            result.update(ret)
+    elif args.device is not None:
+        # we have only one device
+        values = get_device_config(args.device, args)
+        result = onboarding(values['device_facts'],
+                            values['device_config'],
+                            onboarding_config,
+                            prefixe)
+    elif args.deviceconfig is not None:
+        # config file specified
+        values = get_device_config(None, args)
+        result = onboarding(values['device_facts'],
+                            values['device_config'],
+                            onboarding_config,
+                            prefixe)
+
+    """
+    device
+     - interface
+      - ip address
+      - etherchannel
+      - switchport
+      - tags
+     - primary ip
+     - vlan
+    """
+    print(json.dumps(dict(result),indent=4))

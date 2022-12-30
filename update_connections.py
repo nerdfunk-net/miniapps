@@ -4,29 +4,12 @@ import argparse
 import getpass
 import json
 from scrapli import Scrapli
-from helper.config import read_config
-from helper import sot
+from helper import helper
+from helper import devicemanagement as dm
 
 
 # set default config file to your needs
 default_config_file = "./config.yaml"
-
-
-def open_connection(host, username, password, platform):
-
-    device = {
-        "host": host,
-        "auth_username": username,
-        "auth_password": password,
-        "auth_strict_key": False,
-        "platform": platform,
-        "ssh_config_file": "~/.ssh/ssh_config"
-    }
-
-    conn = Scrapli(**device)
-    conn.open()
-
-    return conn
 
 
 def main():
@@ -46,7 +29,7 @@ def main():
         config_file = args.config
     else:
         config_file = default_config_file
-    config = read_config(config_file)
+    config = helper.read_config(config_file)
 
     # check what login to use
     username = None
@@ -74,7 +57,7 @@ def main():
         if args.password is not None:
             password = args.password
 
-    conn = open_connection(args.device, username, password, args.platform)
+    conn = dm.open_connection(args.device, username, password, args.platform)
     response = conn.send_commands(['show running-config | incl hostname',
                                    'show running-config | incl ip domain name'])
 
@@ -105,7 +88,7 @@ def main():
             "name": fqdn,
             "config": connection
         }
-        sot.send_request("updateconnection",
+        helper.send_request("updateconnection",
                          config["sot"]["api_endpoint"],
                          newconfig,
                          sot_result,
@@ -113,6 +96,7 @@ def main():
                          success="added to sot")
 
     print(json.dumps(sot_result, indent=4))
+
 
 if __name__ == "__main__":
     main()
