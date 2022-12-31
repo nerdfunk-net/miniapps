@@ -144,6 +144,7 @@ def get_profile(config, profilename='default'):
     """
 
     result = {}
+    clear_password = None
 
     username = get_value_from_dict(config, ['accounts',
                                             'devices',
@@ -154,11 +155,10 @@ def get_profile(config, profilename='default'):
                                             profilename,
                                             'password'])
 
-    clear_password = decrypt_password(password)
+    if password is not None:
+        clear_password = decrypt_password(password)
 
     if clear_password is None:
-        result.update({'success': False, 'reason': 'wrong password'})
+        return {'success': False, 'reason': 'wrong password'}
     else:
-        result.update({'success': True, 'username': username, 'password': clear_password})
-
-    return result
+        return {'success': True, 'username': username, 'password': clear_password}

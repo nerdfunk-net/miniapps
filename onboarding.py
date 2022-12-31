@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import argparse
-import json
 import sys
 import pytricia
 import yaml
@@ -9,6 +8,7 @@ import getpass
 import socket
 import os
 import json
+import logging
 from dotenv import load_dotenv, dotenv_values
 from helper.ciscoconfig import DeviceConfig
 from helper import helper
@@ -45,18 +45,21 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
                              ciscoconf)
     if pa is not None:
         primary_address = pa['config']['primary_ip4']
+        logging.debug("primary address %s" % primary_address)
     else:
         # no primary interface found. Get IP of the device
-        print("no primary ip found using %s" % device_facts['args.device'])
+        logging.info("no primary ip found using %s" % device_facts['args.device'])
         primary_address = socket.gethostbyname(device_facts['args.device'])
 
     # get default values for primary ip
+    logging.debug("getting default values for %s" % primary_address)
     primary_defaults = get_prefix_defaults(prefixe, primary_address)
 
     # check if we have all necessary defaults
     list_def = ['site', 'role', 'devicetype', 'manufacturer', 'platform', 'status']
     for i in list_def:
         if i not in primary_defaults:
+            logging.critical("%s missing. Please add %s to your default or set as arg" % (i, i))
             print("%s missing. Please add %s to your default or set as arg" % (i, i))
             return result
 
@@ -78,6 +81,7 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
     }
 
     # send_request is our helper function to call the network abstraction layer
+    logging.debug("adding device %s to sot" % device_fqdn)
     result[device_fqdn]['device'] = helper.send_request("adddevice",
                                                         onboarding_config["sot"]["api_endpoint"],
                                                         data_add_device)
@@ -101,6 +105,7 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
             "enabled": enabled,
             "description": interface['description']
         }
+        logging.debug("adding %s / %s to sot" % (device_fqdn, name))
         result[device_fqdn][name] = helper.send_request("addinterface",
                                                         onboarding_config["sot"]["api_endpoint"],
                                                         data_add_interface)
@@ -113,6 +118,7 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
                 "interface": name,
                 "address": addr
             }
+            logging.debug("adding %s / %s to sot" % (device_fqdn, addr))
             result[device_fqdn][name][addr] = helper.send_request("addaddress",
                                                                   onboarding_config["sot"]["api_endpoint"],
                                                                   data_add_address)
@@ -125,6 +131,7 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
                 "interface": name,
                 "config": lag_data
             }
+            logging.debug("adding etherchannels of %s to sot" % device_fqdn)
             result[device_fqdn][name]['portchannel'] = send_request("updateinterface",
                                                                     onboarding_config["sot"]["api_endpoint"],
                                                                     newconfig)
@@ -152,6 +159,7 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
                     "interface": name,
                     "config": data
                 }
+                logging.debug("adding switchport of %s to sot" % device_fqdn)
                 result[device_fqdn][name]['switchport'] = helper.send_request("updateinterface",
                                                                               onboarding_config["sot"]["api_endpoint"],
                                                                               newconfig)
@@ -164,6 +172,7 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
                 "interface": name,
                 "config": {"tags": tag_list}
             }
+            logging.debug("adding tags of %s to sot" % device_fqdn)
             result[device_fqdn][name]['tags'] = helper.send_request("updateinterface",
                                                                     onboarding_config["sot"]["api_endpoint"],
                                                                     newconfig)
@@ -177,6 +186,7 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
             "status": "active",
             "site": args.site or primary_defaults['site']
         }
+        logging.debug("adding vlan %s of %s to sot" % (vid, device_fqdn))
         result[device_fqdn]['vlan'][vid] = send_request("addvlan",
                                                         onboarding_config["sot"]["api_endpoint"],
                                                         data_add_vlan)
@@ -191,6 +201,7 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
             "name": device_fqdn,
             "config": new_addr
         }
+        logging.debug("setting primary IP of %s in sot" % device_fqdn)
         result[device_fqdn]['primary_ip'] = helper.send_request("updatedevice",
                             onboarding_config["sot"]["api_endpoint"],
                             data_set_primary)
@@ -200,6 +211,39 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
 
     #print(json.dumps(dict(result),indent=4))
     return result
+
+
+def add_cables(conn, device_facts, onboarding_config):
+
+    # get layer2 neighbors
+    response = conn.send_command("show cdp neighbors")
+    result = response.genie_parse_output()
+
+    sot_result = {'logs': [], 'success': []}
+
+    for line in result['cdp']['index']:
+        device_id = result['cdp']['index'][line]['device_id']
+        local_interface = result['cdp']['index'][line]['local_interface']
+        port_id = result['cdp']['index'][line]['port_id']
+        logging.debug("adding %s %s %s %s" % (device_facts['fqdn'],
+                                              local_interface,
+                                              device_id,
+                                              port_id))
+
+        connection = {
+            "side_a": device_facts['fqdn'],
+            "side_b": device_id,
+            "interface_a": local_interface,
+            "interface_b": port_id,
+            "cable_type": "cat5e"
+        }
+        newconfig = {
+            "name": device_facts['fqdn'],
+            "config": connection
+        }
+        return helper.send_request("updateconnection",
+                                   onboarding_config["sot"]["api_endpoint"],
+                                   newconfig)
 
 
 def get_primary_address(device_fqdn, interfaces, cisco_config):
@@ -246,72 +290,81 @@ def get_prefix_defaults(prefixe, ip):
     return defaults
 
 
-def get_device_config(device, args):
+def get_username_and_password(args):
+    """
+    get username and password from profile
+    Args:
+        args:
 
-    # default values
-    device_facts = None
+    Returns:
+        username: str
+        password: str
+    """
+
+    """
+    credentials are either configured in our config
+    or must be entered by the user
+    """
+
     username = None
     password = None
+
+    if args.profile is not None:
+        logging.debug("using profile %s" % args.profile)
+        profile = args.profile
+        account = helper.get_profile(onboarding_config, profile)
+        if not account['success']:
+            logging.error("could not retrieve username and password")
+        else:
+            username = account.get('username')
+            password = account.get('password')
+    if username is None:
+        username = input("Username (%s): " % getpass.getuser())
+        if username == "":
+            username = getpass.getuser()
+    elif args.username is not None:
+        username = args.username
+
+    if password is None and args.password is None:
+        password = getpass.getpass(prompt="Enter password for %s: " % username)
+    else:
+        if args.password is not None:
+            password = args.password
+
+    logging.debug("username=%s, password=%s" % (username, password))
+
+    return username, password
+
+
+def get_device_config(conn, args):
+    """
+        get device config
+    Args:
+        conn: connection to device
+        args: command line arguments
+
+    Returns:
+        device config: str
+    """
 
     # either we read the device config from a file or we
     # connect to the device and get the running config
     if args.deviceconfig is not None:
+        logging.debug("reading config from file args.deviceconfig")
         # read device config from file
-        with open(args.deviceconfig, 'r') as file:
-            raw_config = file.read().splitlines()
-    elif device is not None:
+        with open(args.deviceconfig, 'r') as f:
+            return f.read().splitlines()
+    elif conn is not None:
         """
         read the running config from the device
         we need the username and password.
-        credentials are either configuted in our config
-        or must be entered by the user
         """
-        if args.profile is not None:
-            profile = args.profile
-            account = helper.get_profile(onboarding_config, profile)
-            if not account['success']:
-                print("could not retrieve username and password")
-            else:
-                username = account.get('username')
-                password = account.get('password')
-        if username is None:
-            username = input("Username (%s): " % getpass.getuser())
-            if username == "":
-                username = getpass.getuser()
-        elif args.username is not None:
-            username = args.username
-
-        if password is None and args.password is None:
-            password = getpass.getpass(prompt="Enter password for %s: " % username)
-        else:
-            if args.password is not None:
-                password = args.password
-
-        # open connection to device
-        conn = dm.open_connection(device,
-                                  username,
-                                  password,
-                                  args.platform,
-                                  args.port)
-
-        # check connection
-        if conn is None:
-            print("could not get connection to device; check properties like platform")
-            sys.exit()
-
-        device_facts = dm.get_facts(conn)
-        device_facts.update({'args.device': device})
-        device_config = dm.get_config(conn, "running-config").splitlines()
-        conn.close()
-
+        logging.debug("getting config")
+        return dm.get_config(conn, "running-config").splitlines()
     else:
-        print("either device or deviceconfig must be specified")
+        print("problem getting config")
+        logging.critical("problem getting config")
         sys.exit(-1)
-
-    return {
-        "device_facts": device_facts,
-        "device_config": device_config,
-    }
 
 
 if __name__ == "__main__":
@@ -328,6 +381,7 @@ if __name__ == "__main__":
     # from the device
     parser.add_argument('--deviceconfig', type=str, required=False)
     parser.add_argument('--device', type=str, required=False)
+    parser.add_argument('--list', type=str, required=False)
     parser.add_argument('--port', type=int, default=22, required=False)
     # we need username and password if the config is retrieved by the device
     # credentials can be configured using a profile
@@ -346,8 +400,15 @@ if __name__ == "__main__":
     parser.add_argument('--devicetype', type=str, required=False)
     parser.add_argument('--platform', type=str, default="ios", required=False)
     parser.add_argument('--status', type=str, required=False)
+    # add cables to sot
+    parser.add_argument('--onboarding', action=argparse.BooleanOptionalAction)
+    parser.add_argument('--cables', action=argparse.BooleanOptionalAction)
 
     args = parser.parse_args()
+
+    # if user does not use onboarding argument set it to true
+    if args.onboarding is None:
+        args.onboarding = True
 
     # set defaults
     prefixe = None
@@ -365,9 +426,31 @@ if __name__ == "__main__":
         config_file = default_config_file
     onboarding_config = helper.read_config(config_file)
 
+    # set logging
+    cfg_loglevel = helper.get_value_from_dict(onboarding_config, ['onboarding','logging','level'])
+    if cfg_loglevel == 'debug':
+        loglevel = logging.DEBUG
+    elif cfg_loglevel == 'info':
+        loglevel = logging.INFO
+    elif cfg_loglevel == 'critical':
+        loglevel = logging.CRITICAL
+    elif cfg_loglevel == 'error':
+        loglevel = logging.ERROR
+    else:
+        loglevel = logging.NOTSET
+    log_format = helper.get_value_from_dict(onboarding_config, ['onboarding','logging','format'])
+    if log_format is None:
+        log_format = '%(asctime)s %(levelname)s:%(message)s'
+    logfile = helper.get_value_from_dict(onboarding_config, ['onboarding','logging','filename'])
+    logging.basicConfig(level=loglevel,
+                        format=log_format,
+                        filename=logfile)
+    logging.debug("config %s read" % config_file)
+
     # get default values of prefixes. This is needed only once
     repo = args.repo or onboarding_config['files']['prefixe']['repo']
     filename = args.prefixe or onboarding_config['files']['prefixe']['filename']
+    logging.debug("reading %s from %s" % (filename, repo))
     prefixe_str = helper.get_file(onboarding_config["sot"]["api_endpoint"],
                                   repo,
                                   filename)
@@ -384,44 +467,84 @@ if __name__ == "__main__":
         sys.exit(-1)
 
     """
+    get username and password
+    """
+    username, password = get_username_and_password(args)
+
+    """
     we have the static values. Now get the config of each device and call
     onboarding.
     """
 
+    # result contains all the results of our onboarding run
     result = defaultdict(dict)
-    if ',' in args.device:
-        devices = args.device.split(',')
-        for device in devices:
-            print("processing %s" % device)
-            values = get_device_config(device, args)
-            ret = onboarding(values['device_facts'],
-                             values['device_config'],
-                             onboarding_config,
-                             prefixe)
-            result.update(ret)
-    elif args.device is not None:
-        # we have only one device
-        values = get_device_config(args.device, args)
-        result = onboarding(values['device_facts'],
-                            values['device_config'],
-                            onboarding_config,
-                            prefixe)
-    elif args.deviceconfig is not None:
-        # config file specified
-        values = get_device_config(None, args)
-        result = onboarding(values['device_facts'],
-                            values['device_config'],
-                            onboarding_config,
-                            prefixe)
+    # devicelist is the list of devices
+    devicelist = []
+    # conn is the connection to a device
+    conn = None
 
-    """
-    device
-     - interface
-      - ip address
-      - etherchannel
-      - switchport
-      - tags
-     - primary ip
-     - vlan
-    """
-    print(json.dumps(dict(result),indent=4))
+    # add list of devices to our list of devices
+    if args.list is not None:
+        with open(args.list) as f:
+            devicelist = f.read().splitlines()
+
+    # add devices from cli to list
+    if args.device is not None:
+        devicelist += args.device.split(',')
+
+    # if the user uses args.deviceconfig we read the config
+    # instead of adding devices to our list of devices
+    # this parameter can only be used with one config, also one device
+    if args.deviceconfig is not None:
+        # config file specified
+        if args.onboarding:
+            logging.debug("configfile specified")
+            device_config = get_device_config(None, args)
+            device_facts = dm.get_facts()
+            result = onboarding(device_facts,
+                                device_config,
+                                onboarding_config,
+                                prefixe)
+    else:
+        for device in devicelist:
+            if args.onboarding:
+                logging.debug("processing %s" % device)
+                # get connection
+                conn = dm.open_connection(device,
+                                          username,
+                                          password,
+                                          args.platform,
+                                          args.port)
+                # retrieve facts like fqdn
+                device_facts = dm.get_facts(conn)
+                device_facts['args.device'] = device
+                # retrieve device config as list of strings
+                device_config = get_device_config(conn,
+                                                  args)
+                conn.close()
+                ret = onboarding(device_facts,
+                                 device_config,
+                                 onboarding_config,
+                                 prefixe)
+                result.update(ret)
+
+    # after adding all devices to our sot we add the cables
+    if args.cables:
+        for device in devicelist:
+            logging.debug("adding cables of %s to sot" % device)
+            conn = dm.open_connection(device,
+                                      username,
+                                      password,
+                                      args.platform,
+                                      args.port)
+            device_facts = dm.get_facts(conn)
+            device_facts['args.device'] = device
+            result['cables'] = add_cables(conn, device_facts, onboarding_config)
+            conn.close()
+
+    target = helper.get_value_from_dict(onboarding_config, ['onboarding','logging','result'])
+    if target == 'stdout':
+        print(json.dumps(dict(result),indent=4))
+    else:
+        with open(target, 'w') as f:
+            f.write(json.dumps(dict(result),indent=4))

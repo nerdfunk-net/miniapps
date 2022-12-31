@@ -90,10 +90,7 @@ def main():
         }
         helper.send_request("updateconnection",
                          config["sot"]["api_endpoint"],
-                         newconfig,
-                         sot_result,
-                         item="connection",
-                         success="added to sot")
+                         newconfig)
 
     print(json.dumps(sot_result, indent=4))
 

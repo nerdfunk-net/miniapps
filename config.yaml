@@ -24,6 +24,14 @@ accounts:
             password: "Z0FBQUFBQmpwS2Zjd3l5ZEYyUjBCT0pydS1GZDNkaE83UG5QbmpIWGNKZF9SOGxaWEladzlCYm9IVDRxQnlRejl3aU9oQml3bVdsX0hFeEduOHBfajJzMEo1Yl9Fb3Z3eHc9PQ=="
 
 onboarding:
+  logging:
+    # set loglevel to your need (debug, info, error, critical)
+    level: info
+    format: "%(levelname)s - %(message)s"
+    # use filename to write logging to a file
+    # filename: out.log
+    # if you want to write the result to a file use result: "filename" instead
+    result: stdout
   defaults:
     # the default primary interface we use to get the primary address
     interface:
