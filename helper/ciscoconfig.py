@@ -1,9 +1,8 @@
 from ciscoconfparse import CiscoConfParse, IPv4Obj
 from netaddr import IPAddress
+from collections import defaultdict
 import re
 import yaml
-import napalm
-import json
 
 
 MAPPING_YAML = './helper/mapping.yaml'
@@ -43,14 +42,16 @@ class DeviceConfig:
     __mapping = None
 
     def __init__(self):
-        self.__config = {}
+        self.__config = defaultdict(dict)
         self.read_mapping(MAPPING_YAML)
 
     def __init__(self, raw):
         self.__raw = raw
-        self.__config = {}
+        self.__config = defaultdict(dict)
         self.read_mapping(MAPPING_YAML)
+        # get config from ciscoconfparse
         self.__deviceConfig = CiscoConfParse(self.__raw)
+        # parse config and add values
         self.__parse_config()
 
     def read_mapping(self, filename):
