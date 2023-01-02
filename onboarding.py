@@ -220,19 +220,17 @@ def onboarding_config_contexts(result, device_facts, device_fqdn, ciscoconf, onb
                 ctx_list.append(i.text)
             device_context[cfg_context] = ctx_list
 
-    cc = {
-        "device": device_fqdn,
-        'configcontext': device_context,
-        'action': 'overwrite',
-        'pull': False
-    }
-
     newconfig = {
-        "slug": device_fqdn,
-        "config": cc
+        "config": {
+            'repo': 'config_contexts',
+            'filename': device_fqdn,
+            'content': device_context,
+            'action': 'overwrite',
+            'pull': False,
+        }
     }
 
-    result[device_fqdn]['config_context'] = helper.send_request("setconfigcontext",
+    result[device_fqdn]['config_context'] = helper.send_request("editfile",
                                                                 onboarding_config["sot"]["api_endpoint"],
                                                                 newconfig)
 
