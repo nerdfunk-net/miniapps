@@ -152,6 +152,7 @@ def onboarding_vlans(result, args, ciscoconf, onboarding_config):
 
 
 def onboarding_primary_ip(result, device_fqdn, primary_address, ciscoconf, onboarding_config):
+
     # set primary IP/Interface of device
     iface = ciscoconf.get_interface_by_address(primary_address)
     new_addr = {"primary_ip4": primary_address,
@@ -177,8 +178,6 @@ def onboarding_cables(conn, device_facts, onboarding_config):
     response = conn.send_command("show cdp neighbors")
     result = response.genie_parse_output()
 
-    sot_result = {'logs': [], 'success': []}
-
     for line in result['cdp']['index']:
         device_id = result['cdp']['index'][line]['device_id']
         local_interface = result['cdp']['index'][line]['local_interface']
@@ -202,6 +201,40 @@ def onboarding_cables(conn, device_facts, onboarding_config):
         return helper.send_request("updateconnection",
                                    onboarding_config["sot"]["api_endpoint"],
                                    newconfig)
+
+
+def onboarding_config_contexts(result, device_facts, device_fqdn, ciscoconf, onboarding_config):
+
+    cfg_contexts = helper.get_value_from_dict(onboarding_config,['onboarding','config_context'])
+    device_context = defaultdict(dict)
+
+    if cfg_contexts is None:
+        result[device_fqdn]['config_context'] = "no config context configured in config"
+        return
+
+    for cfg_context in cfg_contexts:
+        for section in cfg_contexts[cfg_context]:
+            ctx_list = []
+            cnf = ciscoconf.get_section(section)
+            for i in cnf:
+                ctx_list.append(i.text)
+            device_context[cfg_context] = ctx_list
+
+    cc = {
+        "device": device_fqdn,
+        'configcontext': device_context,
+        'action': 'overwrite',
+        'pull': False
+    }
+
+    newconfig = {
+        "slug": device_fqdn,
+        "config": cc
+    }
+
+    result[device_fqdn]['config_context'] = helper.send_request("setconfigcontext",
+                                                                onboarding_config["sot"]["api_endpoint"],
+                                                                newconfig)
 
 
 def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
@@ -273,6 +306,13 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
 
     if args.onboarding:
         onboarding_primary_ip(result, device_fqdn, primary_address, ciscoconf, onboarding_config)
+
+    if args.config_context:
+        onboarding_config_contexts(result,
+                                   device_facts,
+                                   device_fqdn,
+                                   ciscoconf,
+                                   onboarding_config)
 
     return result
 
@@ -411,6 +451,7 @@ if __name__ == "__main__":
     parser.add_argument('--interfaces', action=argparse.BooleanOptionalAction)
     parser.add_argument('--vlans', action=argparse.BooleanOptionalAction)
     parser.add_argument('--cables', action=argparse.BooleanOptionalAction)
+    parser.add_argument('--config-context', action=argparse.BooleanOptionalAction)
 
     # the user can enter a different config file
     parser.add_argument('--config', type=str, required=False)
@@ -439,7 +480,6 @@ if __name__ == "__main__":
     parser.add_argument('--status', type=str, required=False)
 
     args = parser.parse_args()
-
     # set defaults
     prefixe = None
 
@@ -485,7 +525,7 @@ if __name__ == "__main__":
                                   repo,
                                   filename)
     if prefixe_str is None:
-        print("could not load prefixe")
+        print("could not load prefixe.")
         sys.exit(-1)
 
     try:

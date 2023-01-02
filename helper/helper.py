@@ -3,6 +3,7 @@ import requests
 import json
 import os
 import base64
+import logging
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -65,21 +66,24 @@ def send_request(url, api_endpoint, json_data):
                     'error': "%s " % response.get('error')}
 
 
-def get_file(api_endpoint, repo, filename, update=False):
+def get_file(api_endpoint, repo, filename, pull=False):
     """
 
     Args:
         api_endpoint:
         repo:
         filename:
-        update:
+        pull:
 
     Returns:
         content of file
     """
-    r = requests.get(url="%s/get/%s/%s?update=%s" % (api_endpoint, repo, filename, update))
+    r = requests.get(url="%s/get/%s/%s?update=%s" % (api_endpoint,
+                                                     repo,
+                                                     filename,
+                                                     pull))
     if r.status_code != 200:
-        print('got status code %i' % r.status_code)
+        logging.error('got status code %i' % r.status_code)
     else:
         # we got a json. parse it and check if we have a success or not
         response = json.loads(r.content)
@@ -87,8 +91,7 @@ def get_file(api_endpoint, repo, filename, update=False):
             content = response['content'].replace("\\n", "\n")
             return content
         else:
-            print("error getting file %s/%s" % (repo, filename))
-            print(response['reason'])
+            logging.error("error getting file %s/%s; Error: %s" % (repo, filename, response['error']))
 
     return None
 

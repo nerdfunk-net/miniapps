@@ -42,4 +42,9 @@ onboarding:
       # to set a tag configure tag name and regular expression here
       ospf: "^ ip ospf"
       dhcp: "^ ip address dhcp"
-
+  config_context:
+    # these config lines are added to the local config text of each device
+    stp:
+     - "spanning-tree"
+    services:
+     - "service"

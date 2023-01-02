@@ -275,3 +275,6 @@ class DeviceConfig:
 
     def get_vlans(self):
         return self.__config["vlan"]
+
+    def get_section(self, section):
+        return self.__deviceConfig.find_objects(r"^%s " % section)
