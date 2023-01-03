@@ -203,7 +203,7 @@ def onboarding_cables(conn, device_facts, onboarding_config):
                                    newconfig)
 
 
-def onboarding_config_contexts(result, device_facts, device_fqdn, ciscoconf, onboarding_config):
+def onboarding_config_contexts(result, device_fqdn, ciscoconf, onboarding_config):
 
     cfg_contexts = helper.get_value_from_dict(onboarding_config,['onboarding','config_context'])
     device_context = defaultdict(dict)
@@ -243,6 +243,25 @@ def onboarding_config_contexts(result, device_facts, device_fqdn, ciscoconf, onb
                                                                 newconfig)
 
 
+def onboarding_backup_config(result, device_fqdn, raw_device_config, onboarding_config):
+
+    config = {
+        'repo': 'config_backup',
+        'filename': device_fqdn,
+        'content': raw_device_config,
+        'action': 'overwrite',
+        'pull': False,
+    }
+
+    newconfig = {
+        "config": config
+    }
+
+    result[device_fqdn]['backup'] = helper.send_request("editfile",
+                                                        onboarding_config["sot"]["api_endpoint"],
+                                                        newconfig)
+
+
 def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
 
     # set default values
@@ -250,7 +269,8 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
     result = defaultdict(dict)
 
     # get cisco config object and parse config
-    ciscoconf = DeviceConfig(raw_device_config)
+    # ciscoconfparse expects the device config as lines
+    ciscoconf = DeviceConfig(raw_device_config.splitlines())
 
     # we need the fqdn of the device
     if device_facts is not None and 'fqdn' in device_facts:
@@ -311,14 +331,23 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
         onboarding_vlans(result, args, ciscoconf, onboarding_config)
 
     if args.onboarding:
-        onboarding_primary_ip(result, device_fqdn, primary_address, ciscoconf, onboarding_config)
+        onboarding_primary_ip(result,
+                              device_fqdn,
+                              primary_address,
+                              ciscoconf,
+                              onboarding_config)
 
     if args.config_context:
         onboarding_config_contexts(result,
-                                   device_facts,
                                    device_fqdn,
                                    ciscoconf,
                                    onboarding_config)
+
+    if args.backup:
+        onboarding_backup_config(result,
+                                 device_fqdn,
+                                 raw_device_config,
+                                 onboarding_config)
 
     return result
 
@@ -429,19 +458,20 @@ def get_device_config(conn, args):
     if args.deviceconfig is not None:
         logging.debug("reading config from file args.deviceconfig")
         # read device config from file
+        # XXX noch einmal checken ob das geht
         with open(args.deviceconfig, 'r') as f:
-            return f.read().splitlines()
+            return f.read()
     elif conn is not None:
         """
         read the running config from the device
         we need the username and password.
         """
         logging.debug("getting config")
-        return dm.get_config(conn, "running-config").splitlines()
+        return dm.get_config(conn, "running-config")
     else:
         print("problem getting config")
         logging.critical("problem getting config")
-        sys.exit(-1)
+        return None
 
 
 if __name__ == "__main__":
@@ -453,11 +483,12 @@ if __name__ == "__main__":
     """
     parser = argparse.ArgumentParser()
     # what to do
-    parser.add_argument('--onboarding', action=argparse.BooleanOptionalAction)
-    parser.add_argument('--interfaces', action=argparse.BooleanOptionalAction)
-    parser.add_argument('--vlans', action=argparse.BooleanOptionalAction)
-    parser.add_argument('--cables', action=argparse.BooleanOptionalAction)
-    parser.add_argument('--config-context', action=argparse.BooleanOptionalAction)
+    parser.add_argument('--onboarding', action='store_true')
+    parser.add_argument('--interfaces', action='store_true')
+    parser.add_argument('--vlans', action='store_true')
+    parser.add_argument('--cables', action='store_true')
+    parser.add_argument('--config-context', action='store_true')
+    parser.add_argument('--backup', action='store_true')
 
     # the user can enter a different config file
     parser.add_argument('--config', type=str, required=False)
@@ -576,6 +607,10 @@ if __name__ == "__main__":
         if args.onboarding:
             logging.debug("configfile specified")
             device_config = get_device_config(None, args)
+            if device_config is None:
+                logger.error("could not read device config")
+                print("could not read device config")
+                sys.exit(-1)
             device_facts = dm.get_facts()
             result = onboarding(device_facts,
                                 device_config,
@@ -594,8 +629,11 @@ if __name__ == "__main__":
             device_facts = dm.get_facts(conn)
             device_facts['args.device'] = device
             # retrieve device config as list of strings
-            device_config = get_device_config(conn,
-                                              args)
+            device_config = get_device_config(conn, args)
+            if device_config is None:
+                logger.error("could not retrieve device config")
+                conn.close()
+                continue
             conn.close()
             ret = onboarding(device_facts,
                              device_config,
@@ -617,7 +655,8 @@ if __name__ == "__main__":
             result['cables'] = onboarding_cables(conn, device_facts, onboarding_config)
             conn.close()
 
-    target = helper.get_value_from_dict(onboarding_config, ['onboarding','logging','result'])
+    target = helper.get_value_from_dict(onboarding_config,
+                                        ['onboarding','logging','result'])
     if target == 'stdout':
         print(json.dumps(dict(result),indent=4))
     else:
