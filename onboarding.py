@@ -208,6 +208,7 @@ def onboarding_config_contexts(result, device_facts, device_fqdn, ciscoconf, onb
     cfg_contexts = helper.get_value_from_dict(onboarding_config,['onboarding','config_context'])
     device_context = defaultdict(dict)
 
+    # check if we have some config_context rules configured
     if cfg_contexts is None:
         result[device_fqdn]['config_context'] = "no config context configured in config"
         return
@@ -220,14 +221,21 @@ def onboarding_config_contexts(result, device_facts, device_fqdn, ciscoconf, onb
                 ctx_list.append(i.text)
             device_context[cfg_context] = ctx_list
 
+    # the device_context is a dict but we need a yaml
+    device_context_yaml = yaml.dump(dict(device_context),
+                                    allow_unicode=True,
+                                    default_flow_style=False)
+
+    config = {
+        'repo': 'config_contexts',
+        'filename': device_fqdn,
+        'content': "%s\n%s" % ("---", device_context_yaml),
+        'action': 'overwrite',
+        'pull': False,
+    }
+
     newconfig = {
-        "config": {
-            'repo': 'config_contexts',
-            'filename': device_fqdn,
-            'content': device_context,
-            'action': 'overwrite',
-            'pull': False,
-        }
+        "config": config
     }
 
     result[device_fqdn]['config_context'] = helper.send_request("editfile",

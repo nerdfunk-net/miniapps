@@ -1,0 +1,51 @@
+---
+sot:
+  api_endpoint: "http://127.0.0.1:8000"
+
+files:
+  prefixe:
+    repo: sot_data
+    filename: defaults/prefixe.yaml
+  defaults:
+    repo: sot_data
+    filename: defaults/defaults.yaml
+  sites:
+    repo: sot_data
+    filename: defaults/sites.yaml
+
+# default logins to connect to the devices
+# these accounts are not stored in nautobot
+accounts:
+    devices:
+        # profile name
+        default:
+            # username to login to devices
+            username: username
+            # encrypted and base64 encodes password
+            password: "your encrypted password here"
+
+onboarding:
+  logging:
+    # set loglevel to your need (debug, info, error, critical)
+    level: info
+    format: "%(levelname)s - %(message)s"
+    # use filename to write logging to a file
+    # filename: out.log
+    # if you want to write the result to a file use result: "filename" instead
+    result: stdout
+  defaults:
+    # the default primary interface we use to get the primary address
+    interface:
+      - Loopback0
+      - Loopback100
+  tags:
+    interfaces:
+      # to set a tag configure tag name and regular expression here
+      ospf: "^ ip ospf"
+      dhcp: "^ ip address dhcp"
+  config_context:
+    # these config lines are added to the local config text of each device
+    stp:
+     - "spanning-tree"
+    services:
+     - "service"
