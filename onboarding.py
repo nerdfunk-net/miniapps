@@ -14,13 +14,15 @@ from helper.ciscoconfig import DeviceConfig
 from helper import helper
 from helper import devicemanagement as dm
 from collections import defaultdict
+from businesslogic import config_context as bl_cc
+from businesslogic import interface as bl_int
 
 
 # set default config file to your needs
 default_config_file = "./config.yaml"
 
 
-def onboarding_devices(result, args, device_fqdn, primary_defaults, onboarding_config):
+def onboarding_devices(result, args, device_fqdn, device_facts, primary_defaults, onboarding_config):
 
     # add device to sot
     data_add_device = {
@@ -30,6 +32,7 @@ def onboarding_devices(result, args, device_fqdn, primary_defaults, onboarding_c
         "devicetype": args.devicetype or primary_defaults['devicetype'],
         "manufacturer": args.manufacturer or primary_defaults['manufacturer'],
         "platform": args.manufacturer or primary_defaults['platform'],
+        "serial_number": device_facts["serial_number"],
         "status": args.status or primary_defaults['status']
     }
 
@@ -120,7 +123,7 @@ def onboarding_interfaces(result, args, device_fqdn, primary_defaults, ciscoconf
                                                                               onboarding_config["sot"]["api_endpoint"],
                                                                               newconfig)
 
-        # setting tags of interface
+        # setting standard tags of interface
         if 'tags' in interface:
             tag_list = ",".join(interface['tags'])
             newconfig = {
@@ -132,6 +135,14 @@ def onboarding_interfaces(result, args, device_fqdn, primary_defaults, ciscoconf
             result[device_fqdn][name]['tags'] = helper.send_request("updateinterface",
                                                                     onboarding_config["sot"]["api_endpoint"],
                                                                     newconfig)
+
+        # call business logic
+        logging.debug("calling business logic for %s/%s" % (device_fqdn, name))
+        bl_int.interface_tags(result,
+                              device_fqdn,
+                              name,
+                              ciscoconf.get_section("interface %s" % name),
+                              onboarding_config)
 
 
 def onboarding_vlans(result, args, ciscoconf, onboarding_config):
@@ -203,7 +214,7 @@ def onboarding_cables(conn, device_facts, onboarding_config):
                                    newconfig)
 
 
-def onboarding_config_contexts(result, device_fqdn, ciscoconf, onboarding_config):
+def onboarding_config_contexts(result, device_fqdn, ciscoconf, raw_device_config, onboarding_config):
 
     cfg_contexts = helper.get_value_from_dict(onboarding_config,['onboarding','config_context'])
     device_context = defaultdict(dict)
@@ -220,6 +231,12 @@ def onboarding_config_contexts(result, device_fqdn, ciscoconf, onboarding_config
             for i in cnf:
                 ctx_list.append(i.text)
             device_context[cfg_context] = ctx_list
+
+    device_context = bl_cc.onfig_context(result,
+                                         device_fqdn,
+                                         device_context,
+                                         raw_device_config,
+                                         onboarding_config)
 
     # the device_context is a dict but we need a yaml
     device_context_yaml = yaml.dump(dict(device_context),
@@ -316,6 +333,7 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
         onboarding_devices(result,
                            args,
                            device_fqdn,
+                           device_facts,
                            primary_defaults,
                            onboarding_config)
 
@@ -341,6 +359,7 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
         onboarding_config_contexts(result,
                                    device_fqdn,
                                    ciscoconf,
+                                   raw_device_config,
                                    onboarding_config)
 
     if args.backup:
