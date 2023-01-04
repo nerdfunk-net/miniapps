@@ -15,14 +15,14 @@ from helper import helper
 from helper import devicemanagement as dm
 from collections import defaultdict
 from businesslogic import config_context as bl_cc
-from businesslogic import interface as bl_int
-
+from businesslogic import interfaces as bl_int
+from businesslogic import device as bl_device
 
 # set default config file to your needs
 default_config_file = "./config.yaml"
 
 
-def onboarding_devices(result, args, device_fqdn, device_facts, primary_defaults, onboarding_config):
+def onboarding_devices(result, args, device_fqdn, device_facts, raw_device_config, primary_defaults, onboarding_config):
 
     # add device to sot
     data_add_device = {
@@ -41,6 +41,9 @@ def onboarding_devices(result, args, device_fqdn, device_facts, primary_defaults
     result[device_fqdn]['device'] = helper.send_request("adddevice",
                                                         onboarding_config["sot"]["api_endpoint"],
                                                         data_add_device)
+
+    logging.debug("calling business logic of device %s to sot" % device_fqdn)
+    bl_device.device(result, device_fqdn, raw_device_config, onboarding_config)
 
 
 def onboarding_interfaces(result, args, device_fqdn, primary_defaults, ciscoconf, onboarding_config):
@@ -176,8 +179,8 @@ def onboarding_primary_ip(result, device_fqdn, primary_address, ciscoconf, onboa
         }
         logging.debug("setting primary IP of %s in sot" % device_fqdn)
         result[device_fqdn]['primary_ip'] = helper.send_request("updatedevice",
-                            onboarding_config["sot"]["api_endpoint"],
-                            data_set_primary)
+                                                                onboarding_config["sot"]["api_endpoint"],
+                                                                data_set_primary)
     else:
         result[device_fqdn]['primary_ip'] = \
             "no primary interface found; device is accessible only with hostname/ip you used"
@@ -334,6 +337,7 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
                            args,
                            device_fqdn,
                            device_facts,
+                           raw_device_config,
                            primary_defaults,
                            onboarding_config)
 

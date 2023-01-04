@@ -32,7 +32,7 @@ def config_context(result, device_fqdn, device_context, raw_device_config, onboa
                                                                 newconfig)
     """
 
-    # write everything you need to "log" to result
+    # write everything you need to "log" to result afterwards
     result[device_fqdn]['userbased_config_context'] = "nothing done"
 
     return device_context
