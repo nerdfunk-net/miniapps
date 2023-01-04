@@ -9,6 +9,7 @@ import socket
 import os
 import json
 import logging
+import pprint
 from dotenv import load_dotenv, dotenv_values
 from helper.ciscoconfig import DeviceConfig
 from helper import helper
@@ -37,7 +38,7 @@ def onboarding_devices(result, args, device_fqdn, device_facts, raw_device_confi
     }
 
     # send_request is our helper function to call the network abstraction layer
-    logging.debug("adding device %s to sot" % device_fqdn)
+    logging.debug("adding device %s (%s) to sot" % (device_fqdn, device_facts['model']))
     result[device_fqdn]['device'] = helper.send_request("adddevice",
                                                         onboarding_config["sot"]["api_endpoint"],
                                                         data_add_device)
@@ -512,6 +513,8 @@ if __name__ == "__main__":
     parser.add_argument('--cables', action='store_true')
     parser.add_argument('--config-context', action='store_true')
     parser.add_argument('--backup', action='store_true')
+    parser.add_argument('--show-facts', action='store_true')
+    parser.add_argument('--show-config', action='store_true')
 
     # the user can enter a different config file
     parser.add_argument('--config', type=str, required=False)
@@ -566,6 +569,8 @@ if __name__ == "__main__":
         loglevel = logging.CRITICAL
     elif cfg_loglevel == 'error':
         loglevel = logging.ERROR
+    elif cfg_loglevel == 'none':
+        loglevel = 100
     else:
         loglevel = logging.NOTSET
     log_format = helper.get_value_from_dict(onboarding_config, ['onboarding','logging','format'])
@@ -585,6 +590,7 @@ if __name__ == "__main__":
                                   repo,
                                   filename)
     if prefixe_str is None:
+        logger.error("could not load prefixe.")
         print("could not load prefixe.")
         sys.exit(-1)
 
@@ -593,6 +599,7 @@ if __name__ == "__main__":
         if prefixe_yaml is not None and 'prefixe' in prefixe_yaml:
             prefixe = prefixe_yaml['prefixe']
     except Exception as exc:
+        logger.error("got exception: %s" % exc)
         print("got exception: %s" % exc)
         sys.exit(-1)
 
@@ -658,6 +665,12 @@ if __name__ == "__main__":
                 conn.close()
                 continue
             conn.close()
+
+            if args.show_facts:
+                print(json.dumps(dict(device_facts), indent=4))
+            if args.show_config:
+                print(device_config)
+
             ret = onboarding(device_facts,
                              device_config,
                              onboarding_config,
@@ -681,7 +694,8 @@ if __name__ == "__main__":
     target = helper.get_value_from_dict(onboarding_config,
                                         ['onboarding','logging','result'])
     if target == 'stdout':
-        print(json.dumps(dict(result),indent=4))
+        if result:
+            print(json.dumps(dict(result), indent=4))
     else:
         with open(target, 'w') as f:
             f.write(json.dumps(dict(result),indent=4))
