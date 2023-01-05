@@ -5,6 +5,11 @@ import re
 import yaml
 
 
+# this defaultdict enables us to use infinitive numbers of arguments
+def inf_defaultdict():
+    return defaultdict(inf_defaultdict)
+
+
 MAPPING_YAML = './helper/mapping.yaml'
 
 # define some regular expressions we use later
@@ -37,19 +42,19 @@ class DeviceConfig:
     __deviceConfig = []
     # config is our finished config dict that includes all necessary values to
     # add the device and the interface to our sot
-    __config = None
+    __config = inf_defaultdict()
     # the mapping includes the interface mapping eg. GigabitEther to 1000base-t
     __mapping = None
     # the list of vlans includes all vlans configured on an interface (switch access vlan xyz)
     __list_of_vlans = None
 
     def __init__(self):
-        self.__config = defaultdict(lambda: defaultdict(dict))
+        self.__config = inf_defaultdict()
         self.read_mapping(MAPPING_YAML)
 
     def __init__(self, raw):
         self.__raw = raw
-        self.__config = defaultdict(dict)
+        self.__config = inf_defaultdict()
         self.read_mapping(MAPPING_YAML)
         # get config from ciscoconfparse
         self.__deviceConfig = CiscoConfParse(self.__raw)
@@ -68,7 +73,7 @@ class DeviceConfig:
 
         """
 
-        # init variables
+        # a set of vlans we find on this device
         self.__list_of_vlans = set()
 
         # get hostname
@@ -78,15 +83,13 @@ class DeviceConfig:
         self.__config["fqdn"] = "%s.%s" % (self.__config["hostname"], self.__config["domain"])
 
         # parse vlans
-        self.__config["vlan"] = {}
         vlan_cfgs = self.__deviceConfig.find_objects(r"^vlan")
         for vlan_cfg in vlan_cfgs:
             vid = vlan_cfg.text[len("vlan "):]
             name = vlan_cfg.re_match_iter_typed(VLAN_NAME, default='')
-            self.__config["vlan"][vid] = {}
             self.__config["vlan"][vid]['vid'] = vid
             self.__config["vlan"][vid]['name'] = name
-            list_of_vlans.append(vid)
+            self.__list_of_vlans.add(vid)
 
         """
          we process the config in the following order:
@@ -101,14 +104,12 @@ class DeviceConfig:
          - get ip addresses
          - check if ospf is configured
         """
-        self.__config["interfaces"] = {}
         interface_cmds = self.__deviceConfig.find_objects(r"^interface ")
         for interface_cmd in interface_cmds:
             intf_name = interface_cmd.text[len("interface "):]
-            self.__config["interfaces"][intf_name] = {}
-            self.__config["interfaces"][intf_name]['name'] = intf_name
+            self.__config["interfaces"][intf_name]["name"] = intf_name
             self.__config["interfaces"][intf_name]["description"] = "not set"
-            self.__config["interfaces"][intf_name]['type'] = self.get_interface_type(intf_name)
+            self.__config["interfaces"][intf_name]["type"] = self.get_interface_type(intf_name)
 
             # get description
             for cmd in interface_cmd.re_search_children(r"^ description "):
@@ -118,7 +119,6 @@ class DeviceConfig:
             for cmd in interface_cmd.re_search_children(CHANNEL_GROUP):
                 match = re.match(LAG, cmd.text)
                 if match:
-                    self.__config["interfaces"][intf_name]["lag"] = {}
                     self.__config["interfaces"][intf_name].update({
                         "lag": {
                             "group": match.group(1),
@@ -130,12 +130,11 @@ class DeviceConfig:
             for cmd in interface_cmd.re_search_children(ACCESS):
                 match = re.match(ACCESS, cmd.text)
                 if match:
-                    self.__config["interfaces"][intf_name]['switchport'] = {}
-                    self.__config["interfaces"][intf_name]['switchport']['mode'] = 'access'
+                    self.__config["interfaces"][intf_name]["switchport"]["mode"] = "access"
                     # a valid (but very ugly) cisco config ist to configure the interface
                     # a switchport but not use the any vlans (no switchport access vlan x)
                     # we init the switchport and set the vlan_id = 1 (the default vlan)
-                    self.__config["interfaces"][intf_name]['switchport']["vlan"] = 1
+                    self.__config["interfaces"][intf_name]["switchport"]["vlan"] = 1
                     self.__list_of_vlans.add("1")
 
             # check access VLAN
@@ -152,7 +151,6 @@ class DeviceConfig:
                 match = re.match(TRUNK, cmd.text)
                 if match:
                     if 'switchport' not in self.__config["interfaces"][intf_name]:
-                        self.__config["interfaces"][intf_name]['switchport'] = {}
                         self.__config["interfaces"][intf_name]['switchport']['mode'] = "tagged"
 
             # check if TRUNK has allowed vlans configured
@@ -176,7 +174,6 @@ class DeviceConfig:
             # get IP Adresses
             for cmd in interface_cmd.re_search_children(IPv4_REGEX):
                 ipv4_addr = interface_cmd.re_match_iter_typed(IPv4_REGEX, result_type=IPv4Obj)
-                self.__config["interfaces"][intf_name]["ipv4"] = {}
                 self.__config["interfaces"][intf_name].update({
                     "ipv4": {
                         "address": ipv4_addr.ip.exploded,
@@ -192,11 +189,9 @@ class DeviceConfig:
         """
         check if config contains OSPF 
         """
-        self.__config["ospf"] = {}
         for ospf_cmds in self.__deviceConfig.find_objects(r"^router ospf"):
             ospf_process = re.match(r'router ospf\s(\d+)', ospf_cmds.text).group(1)
             if ospf_process is not None:
-                self.__config["ospf"][ospf_process] = {}
                 self.__config["ospf"][ospf_process]['config'] = []
                 for val_obj in ospf_cmds.children:
                     self.__config["ospf"][ospf_process]['config'].append(val_obj.text)
@@ -290,3 +285,4 @@ class DeviceConfig:
 
     def get_section(self, section):
         return self.__deviceConfig.find_all_children(r"^%s" % section)
+

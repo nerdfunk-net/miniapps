@@ -22,6 +22,11 @@ from businesslogic import device as bl_device
 default_config_file = "./config.yaml"
 
 
+# this defaultdict enables us to use infinitive numbers of arguments
+def inf_defaultdict():
+    return defaultdict(inf_defaultdict)
+
+
 def onboarding_devices(result, args, device_fqdn, device_facts, raw_device_config, primary_defaults, onboarding_config):
 
     # add device to sot
@@ -638,7 +643,7 @@ if __name__ == "__main__":
     # result contains all the results of our onboarding run
     # result is a defaultdict of nested defaultdicts
     # in this case you can use result['one']['two']['three'] = "four"
-    result = defaultdict(lambda: defaultdict(dict))
+    result = inf_defaultdict()
     # devicelist is the list of devices
     devicelist = []
     # conn is the connection to a device
