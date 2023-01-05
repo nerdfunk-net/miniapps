@@ -18,7 +18,7 @@ CHANNEL_GROUP = r"^ channel-group"
 VLAN_NAME = r"^ name (\S+)"
 ACCESS = r"^ switchport mode access"
 TRUNK = r"^ switchport mode trunk"
-SWITCHPORT_VLAN = r"^ switchport access vlan (\d+)"
+SWITCHPORT_ACCESS_VLAN = r"^ switchport access vlan (\d+)"
 TRUNK_VLANS = r"^ switchport trunk allowed vlan (\S+)"
 
 # the next regexes result in true or false
@@ -31,18 +31,20 @@ REGEXES = {'no_switchport': r"^ no switchport",
 
 
 class DeviceConfig:
-    # raw is our config file
+    # raw is our config
     __raw = ""
     # config is the parsed cisco config
     __deviceConfig = []
-    # config is our build dict that includes all necessary values to
+    # config is our finished config dict that includes all necessary values to
     # add the device and the interface to our sot
     __config = None
     # the mapping includes the interface mapping eg. GigabitEther to 1000base-t
     __mapping = None
+    # the list of vlans includes all vlans configured on an interface (switch access vlan xyz)
+    __list_of_vlans = None
 
     def __init__(self):
-        self.__config = defaultdict(dict)
+        self.__config = defaultdict(lambda: defaultdict(dict))
         self.read_mapping(MAPPING_YAML)
 
     def __init__(self, raw):
@@ -66,6 +68,9 @@ class DeviceConfig:
 
         """
 
+        # init variables
+        self.__list_of_vlans = set()
+
         # get hostname
         self.__config["hostname"] = self.__deviceConfig.re_match_iter_typed(HOSTNAME, default='')
         # get domain name
@@ -81,6 +86,7 @@ class DeviceConfig:
             self.__config["vlan"][vid] = {}
             self.__config["vlan"][vid]['vid'] = vid
             self.__config["vlan"][vid]['name'] = name
+            list_of_vlans.append(vid)
 
         """
          we process the config in the following order:
@@ -126,14 +132,20 @@ class DeviceConfig:
                 if match:
                     self.__config["interfaces"][intf_name]['switchport'] = {}
                     self.__config["interfaces"][intf_name]['switchport']['mode'] = 'access'
+                    # a valid (but very ugly) cisco config ist to configure the interface
+                    # a switchport but not use the any vlans (no switchport access vlan x)
+                    # we init the switchport and set the vlan_id = 1 (the default vlan)
+                    self.__config["interfaces"][intf_name]['switchport']["vlan"] = 1
+                    self.__list_of_vlans.add("1")
 
             # check access VLAN
-            for cmd in interface_cmd.re_search_children(SWITCHPORT_VLAN):
-                match = re.match(SWITCHPORT_VLAN, cmd.text)
+            for cmd in interface_cmd.re_search_children(SWITCHPORT_ACCESS_VLAN):
+                match = re.match(SWITCHPORT_ACCESS_VLAN, cmd.text)
                 if match:
                     if 'vlan' not in self.__config["interfaces"][intf_name]['switchport']:
                         self.__config["interfaces"][intf_name]['switchport']['vlan'] = []
                     self.__config["interfaces"][intf_name]['switchport']["vlan"] = match.group(1)
+                    self.__list_of_vlans.add(match.group(1))
 
             # check TRUNK
             for cmd in interface_cmd.re_search_children(TRUNK):
@@ -274,7 +286,7 @@ class DeviceConfig:
         return self.__config["interfaces"]
 
     def get_vlans(self):
-        return self.__config["vlan"]
+        return self.__config["vlan"], list(self.__list_of_vlans)
 
     def get_section(self, section):
         return self.__deviceConfig.find_all_children(r"^%s" % section)

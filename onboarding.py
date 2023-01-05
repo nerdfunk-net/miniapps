@@ -9,7 +9,6 @@ import socket
 import os
 import json
 import logging
-import pprint
 from dotenv import load_dotenv, dotenv_values
 from helper.ciscoconfig import DeviceConfig
 from helper import helper
@@ -95,9 +94,9 @@ def onboarding_interfaces(result, args, device_fqdn, primary_defaults, ciscoconf
                 "config": lag_data
             }
             logging.debug("adding etherchannels of %s to sot" % device_fqdn)
-            result[device_fqdn][name]['portchannel'] = send_request("updateinterface",
-                                                                    onboarding_config["sot"]["api_endpoint"],
-                                                                    newconfig)
+            result[device_fqdn][name]['portchannel'] = helper.send_request("updateinterface",
+                                                                           onboarding_config["sot"]["api_endpoint"],
+                                                                           newconfig)
         # setting switchport
         if 'switchport' in interface:
             mode = interface['switchport']['mode']
@@ -149,11 +148,14 @@ def onboarding_interfaces(result, args, device_fqdn, primary_defaults, ciscoconf
                               onboarding_config)
 
 
-def onboarding_vlans(result, args, ciscoconf, onboarding_config):
+def onboarding_vlans(result, device_fqdn, args, ciscoconf, primary_defaults, onboarding_config):
 
     # add vlans
-    vlans = ciscoconf.get_vlans()
+    vlans,set_of_vlans = ciscoconf.get_vlans()
+    added_vlans = {}
+
     for vid in vlans:
+        print(">>>> %s" % vid)
         data_add_vlan = {
             "vid": vid,
             "name": vlans[vid]['name'],
@@ -161,9 +163,26 @@ def onboarding_vlans(result, args, ciscoconf, onboarding_config):
             "site": args.site or primary_defaults['site']
         }
         logging.debug("adding vlan %s of %s to sot" % (vid, device_fqdn))
-        result[device_fqdn]['vlan'][vid] = send_request("addvlan",
-                                                        onboarding_config["sot"]["api_endpoint"],
-                                                        data_add_vlan)
+        result[device_fqdn]['vlan'][vid] = helper.send_request("addvlan",
+                                                               onboarding_config["sot"]["api_endpoint"],
+                                                               data_add_vlan)
+        # create list of vlans added to the sot
+        if result[device_fqdn]['vlan'][vid]['success']:
+            added_vlans[vid] = True
+
+    # now add all vlans of the set that were not added to the sot before
+    for vid in set_of_vlans:
+        if vid not in added_vlans:
+            data_add_vlan = {
+                "vid": vid,
+                "name": "unknown vlan %s" % vid,
+                "status": "active",
+                "site": args.site or primary_defaults['site']
+            }
+            logging.debug("adding vlan %s of %s to sot" % (vid, device_fqdn))
+            result[device_fqdn]['vlan'][vid] = helper.send_request("addvlan",
+                                                                   onboarding_config["sot"]["api_endpoint"],
+                                                                   data_add_vlan)
 
 
 def onboarding_primary_ip(result, device_fqdn, primary_address, ciscoconf, onboarding_config):
@@ -187,16 +206,16 @@ def onboarding_primary_ip(result, device_fqdn, primary_address, ciscoconf, onboa
             "no primary interface found; device is accessible only with hostname/ip you used"
 
 
-def onboarding_cables(conn, device_facts, onboarding_config):
+def onboarding_cables(result, conn, device_facts, onboarding_config):
 
     # get layer2 neighbors
     response = conn.send_command("show cdp neighbors")
-    result = response.genie_parse_output()
+    r = response.genie_parse_output()
 
-    for line in result['cdp']['index']:
-        device_id = result['cdp']['index'][line]['device_id']
-        local_interface = result['cdp']['index'][line]['local_interface']
-        port_id = result['cdp']['index'][line]['port_id']
+    for line in r['cdp']['index']:
+        device_id = r['cdp']['index'][line]['device_id']
+        local_interface = r['cdp']['index'][line]['local_interface']
+        port_id = r['cdp']['index'][line]['port_id']
         logging.debug("adding %s %s %s %s" % (device_facts['fqdn'],
                                               local_interface,
                                               device_id,
@@ -213,9 +232,9 @@ def onboarding_cables(conn, device_facts, onboarding_config):
             "name": device_facts['fqdn'],
             "config": connection
         }
-        return helper.send_request("updateconnection",
-                                   onboarding_config["sot"]["api_endpoint"],
-                                   newconfig)
+        result['cables'] = helper.send_request("updateconnection",
+                                               onboarding_config["sot"]["api_endpoint"],
+                                               newconfig)
 
 
 def onboarding_config_contexts(result, device_fqdn, ciscoconf, raw_device_config, onboarding_config):
@@ -283,11 +302,7 @@ def onboarding_backup_config(result, device_fqdn, raw_device_config, onboarding_
                                                         newconfig)
 
 
-def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
-
-    # set default values
-    # we use a defaultdict to store our results
-    result = defaultdict(dict)
+def onboarding(result, device_facts, raw_device_config, onboarding_config, prefixe):
 
     # get cisco config object and parse config
     # ciscoconfparse expects the device config as lines
@@ -342,6 +357,16 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
                            primary_defaults,
                            onboarding_config)
 
+    # we add the vlans before adding the interface
+    # because some interfaces may be access vlans
+    if args.vlans:
+        onboarding_vlans(result,
+                         device_fqdn,
+                         args,
+                         ciscoconf,
+                         primary_defaults,
+                         onboarding_config)
+
     if args.interfaces:
         onboarding_interfaces(result,
                               args,
@@ -349,9 +374,6 @@ def onboarding(device_facts, raw_device_config, onboarding_config, prefixe):
                               primary_defaults,
                               ciscoconf,
                               onboarding_config)
-
-    if args.vlans:
-        onboarding_vlans(result, args, ciscoconf, onboarding_config)
 
     if args.onboarding:
         onboarding_primary_ip(result,
@@ -614,7 +636,9 @@ if __name__ == "__main__":
     """
 
     # result contains all the results of our onboarding run
-    result = defaultdict(dict)
+    # result is a defaultdict of nested defaultdicts
+    # in this case you can use result['one']['two']['three'] = "four"
+    result = defaultdict(lambda: defaultdict(dict))
     # devicelist is the list of devices
     devicelist = []
     # conn is the connection to a device
@@ -642,10 +666,11 @@ if __name__ == "__main__":
                 print("could not read device config")
                 sys.exit(-1)
             device_facts = dm.get_facts()
-            result = onboarding(device_facts,
-                                device_config,
-                                onboarding_config,
-                                prefixe)
+            onboarding(result,
+                       device_facts,
+                       device_config,
+                       onboarding_config,
+                       prefixe)
     else:
         for device in devicelist:
             logging.debug("processing %s" % device)
@@ -671,7 +696,8 @@ if __name__ == "__main__":
             if args.show_config:
                 print(device_config)
 
-            ret = onboarding(device_facts,
+            ret = onboarding(result,
+                             device_facts,
                              device_config,
                              onboarding_config,
                              prefixe)
@@ -688,7 +714,10 @@ if __name__ == "__main__":
                                       args.port)
             device_facts = dm.get_facts(conn)
             device_facts['args.device'] = device
-            result['cables'] = onboarding_cables(conn, device_facts, onboarding_config)
+            onboarding_cables(result,
+                              conn,
+                              device_facts,
+                              onboarding_config)
             conn.close()
 
     target = helper.get_value_from_dict(onboarding_config,

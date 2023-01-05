@@ -3,7 +3,6 @@
 import argparse
 import json
 import yaml
-from helper import sot
 from helper import helper
 
 # set default config file to your needs
@@ -22,7 +21,7 @@ def get_defaults(repo, filename, update=False):
 
     """
 
-    defaults_str = sot.get_file(config["sot"]["api_endpoint"],
+    defaults_str = helper.get_file(config["sot"]["api_endpoint"],
                                 repo,
                                 filename,
                                 update)
@@ -86,9 +85,7 @@ def origin_git(config, update=False):
         suc = sot.send_request('addsite',
                            config["sot"]["api_endpoint"],
                            data,
-                           result,
-                           'site',
-                           'site added')
+                           result)
 
         # check if site already exists
         # if so we update only if user set update to True
@@ -103,10 +100,7 @@ def origin_git(config, update=False):
 
             sot.send_request('updatesite',
                          config["sot"]["api_endpoint"],
-                         {'slug': site['slug'], 'config': update_data},
-                         result,
-                         'site',
-                         '%s updated' % site['slug'])
+                         {'slug': site['slug'], 'config': update_data})
 
     # add manufacturers
     for m in defaults['manufacturers']:
@@ -114,10 +108,7 @@ def origin_git(config, update=False):
                 'slug': m['slug']}
         suc = sot.send_request('addmanufacturer',
                            config["sot"]["api_endpoint"],
-                           data,
-                           result,
-                           'manufacturer',
-                           'manufacturer added')
+                           data)
 
         if not suc and args.update:
             update_data = {}
@@ -127,10 +118,7 @@ def origin_git(config, update=False):
                     update_data[update] = m[update]
             sot.send_request('updatemanufacturer',
                          config["sot"]["api_endpoint"],
-                         {'slug': m['slug'], 'config': update_data},
-                         result,
-                         'manufacturer',
-                         '%s updated' % m['slug'])
+                         {'slug': m['slug'], 'config': update_data})
 
     # add platform
     for p in defaults['platforms']:
@@ -145,10 +133,7 @@ def origin_git(config, update=False):
                 }
         suc = sot.send_request('addplatform',
                            config["sot"]["api_endpoint"],
-                           data,
-                           result,
-                           'platform',
-                           '%s added' % p['name'])
+                           data)
 
         if not suc and args.update:
             update_data = {}
@@ -158,10 +143,7 @@ def origin_git(config, update=False):
                     update_data[update] = p[update]
             sot.send_request('updateplatform',
                          config["sot"]["api_endpoint"],
-                         {'slug': p['slug'], 'config': update_data},
-                         result,
-                         'platform',
-                         '%s updated' % p['slug'])
+                         {'slug': p['slug'], 'config': update_data})
 
     print(json.dumps(result, indent=4))
 
