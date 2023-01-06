@@ -3,9 +3,10 @@ from netaddr import IPAddress
 from collections import defaultdict
 import re
 import yaml
+import json
 
 
-# this defaultdict enables us to use infinitive numbers of arguments
+# this defaultdict enables us to use infinite numbers of arguments
 def inf_defaultdict():
     return defaultdict(inf_defaultdict)
 
@@ -24,7 +25,7 @@ VLAN_NAME = r"^ name (\S+)"
 ACCESS = r"^ switchport mode access"
 TRUNK = r"^ switchport mode trunk"
 SWITCHPORT_ACCESS_VLAN = r"^ switchport access vlan (\d+)"
-TRUNK_VLANS = r"^ switchport trunk allowed vlan (\S+)"
+TRUNK_ALLOWED_VLANS = r"^ switchport trunk allowed vlan (\S+)"
 
 # the next regexes result in true or false
 # use the onboarding config to add other tags to the sot
@@ -109,7 +110,7 @@ class DeviceConfig:
             intf_name = interface_cmd.text[len("interface "):]
             self.__config["interfaces"][intf_name]["name"] = intf_name
             self.__config["interfaces"][intf_name]["description"] = "not set"
-            self.__config["interfaces"][intf_name]["type"] = self.get_interface_type(intf_name)
+            self.__config["interfaces"][intf_name]["type"] = self.get_interface_type(intf_name.lower())
 
             # get description
             for cmd in interface_cmd.re_search_children(r"^ description "):
@@ -154,8 +155,8 @@ class DeviceConfig:
                         self.__config["interfaces"][intf_name]['switchport']['mode'] = "tagged"
 
             # check if TRUNK has allowed vlans configured
-            for cmd in interface_cmd.re_search_children(TRUNK_VLANS):
-                match = re.match(TRUNK_VLANS, cmd.text)
+            for cmd in interface_cmd.re_search_children(TRUNK_ALLOWED_VLANS):
+                match = re.match(TRUNK_ALLOWED_VLANS, cmd.text)
                 if match:
                     if 'vlan' not in self.__config["interfaces"][intf_name]['switchport']:
                         self.__config["interfaces"][intf_name]['switchport']['vlan'] = []
@@ -260,7 +261,7 @@ class DeviceConfig:
 
     def get_interface_type(self, interface):
         for mapping in self.__mapping['interfaces']:
-            if mapping in interface:
+            if mapping.lower() in interface:
                 return self.__mapping['interfaces'][mapping]
         return self.__mapping['interfaces']['default']
 

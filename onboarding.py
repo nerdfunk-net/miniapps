@@ -22,19 +22,23 @@ from businesslogic import device as bl_device
 default_config_file = "./config.yaml"
 
 
-# this defaultdict enables us to use infinitive numbers of arguments
+# this defaultdict enables us to use infinite numbers of arguments
 def inf_defaultdict():
     return defaultdict(inf_defaultdict)
 
 
 def onboarding_devices(result, args, device_fqdn, device_facts, raw_device_config, primary_defaults, onboarding_config):
 
+    devicetype = args.devicetype or primary_defaults['devicetype'],
+    if 'model' in device_facts:
+        devicetype = device_facts['model']
+
     # add device to sot
     data_add_device = {
         "name": device_fqdn,
         "site": args.site or primary_defaults['site'],
         "role": args.role or primary_defaults['role'],
-        "devicetype": args.devicetype or primary_defaults['devicetype'],
+        "devicetype": devicetype,
         "manufacturer": args.manufacturer or primary_defaults['manufacturer'],
         "platform": args.manufacturer or primary_defaults['platform'],
         "serial_number": device_facts["serial_number"],
@@ -92,7 +96,7 @@ def onboarding_interfaces(result, args, device_fqdn, primary_defaults, ciscoconf
 
         # check if we have Etherchannels
         if 'lag' in interface:
-            lag_data = {"lag": "Port-channel %s" % interface["lag"]["group"]}
+            lag_data = {"lag": "Port-channel%s" % interface["lag"]["group"]}
             newconfig = {
                 "name": device_fqdn,
                 "interface": name,
@@ -102,7 +106,7 @@ def onboarding_interfaces(result, args, device_fqdn, primary_defaults, ciscoconf
             result[device_fqdn][name]['portchannel'] = helper.send_request("updateinterface",
                                                                            onboarding_config["sot"]["api_endpoint"],
                                                                            newconfig)
-        # setting switchport
+        # setting switchport or trunk
         if 'switchport' in interface:
             mode = interface['switchport']['mode']
             data = {}
@@ -112,6 +116,8 @@ def onboarding_interfaces(result, args, device_fqdn, primary_defaults, ciscoconf
                         "site": args.site or primary_defaults['site']
                         }
             elif mode == 'tagged':
+                # this port is either a trunked with allowed vlans (mode: tagged)
+                # or a trunk with all vlans mode: tagged-all
                 # check if we have allowed vlans
                 if 'vlan' in interface['switchport'] and \
                         'range' not in interface['switchport']:
@@ -120,6 +126,11 @@ def onboarding_interfaces(result, args, device_fqdn, primary_defaults, ciscoconf
                             "tagged": vlans,
                             "site": args.site or primary_defaults['site']
                             }
+                else:
+                    data = {"mode": "tagged-all",
+                            "site": args.site or primary_defaults['site']
+                            }
+
             if data is not None:
                 newconfig = {
                     "name": device_fqdn,
@@ -160,7 +171,6 @@ def onboarding_vlans(result, device_fqdn, args, ciscoconf, primary_defaults, onb
     added_vlans = {}
 
     for vid in vlans:
-        print(">>>> %s" % vid)
         data_add_vlan = {
             "vid": vid,
             "name": vlans[vid]['name'],
@@ -237,7 +247,7 @@ def onboarding_cables(result, conn, device_facts, onboarding_config):
             "name": device_facts['fqdn'],
             "config": connection
         }
-        result['cables'] = helper.send_request("updateconnection",
+        result['cables'][line] = helper.send_request("updateconnection",
                                                onboarding_config["sot"]["api_endpoint"],
                                                newconfig)
 
@@ -254,13 +264,9 @@ def onboarding_config_contexts(result, device_fqdn, ciscoconf, raw_device_config
 
     for cfg_context in cfg_contexts:
         for section in cfg_contexts[cfg_context]:
-            ctx_list = []
-            cnf = ciscoconf.get_section(section)
-            for i in cnf:
-                ctx_list.append(i.text)
-            device_context[cfg_context] = ctx_list
+            device_context[cfg_context] = ciscoconf.get_section(section)
 
-    device_context = bl_cc.onfig_context(result,
+    device_context = bl_cc.config_context(result,
                                          device_fqdn,
                                          device_context,
                                          raw_device_config,
@@ -274,6 +280,7 @@ def onboarding_config_contexts(result, device_fqdn, ciscoconf, raw_device_config
     config = {
         'repo': 'config_contexts',
         'filename': device_fqdn,
+        'subdir': "devices",
         'content': "%s\n%s" % ("---", device_context_yaml),
         'action': 'overwrite',
         'pull': False,
@@ -609,6 +616,11 @@ if __name__ == "__main__":
                         filename=logfile)
     logging.debug("config %s read" % config_file)
 
+    """
+    get username and password
+    """
+    username, password = get_username_and_password(args)
+
     # get default values of prefixes. This is needed only once
     repo = args.repo or onboarding_config['files']['prefixe']['repo']
     filename = args.prefixe or onboarding_config['files']['prefixe']['filename']
@@ -629,11 +641,6 @@ if __name__ == "__main__":
         logger.error("got exception: %s" % exc)
         print("got exception: %s" % exc)
         sys.exit(-1)
-
-    """
-    get username and password
-    """
-    username, password = get_username_and_password(args)
 
     """
     we have the static values. Now get the config of each device and call

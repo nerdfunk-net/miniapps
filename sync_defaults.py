@@ -16,15 +16,16 @@ def get_defaults(repo, filename, update=False):
     Args:
         repo:
         filename:
+        update:
 
     Returns:
 
     """
 
     defaults_str = helper.get_file(config["sot"]["api_endpoint"],
-                                repo,
-                                filename,
-                                update)
+                                   repo,
+                                   filename,
+                                   update)
 
     if defaults_str is None:
         print("%s %s does not exists or could not be read" % (repo, filename))
@@ -52,7 +53,7 @@ def origin_git(config, update=False):
     """
 
     # we use a dict to store our results
-    result = {'logs': [], 'success': []}
+    result = {}
 
     repo = config['files']['sites']['repo']
     prefix_filename = config['files']['prefixe']['filename']
@@ -82,41 +83,50 @@ def origin_git(config, update=False):
                 'status': site['status']
                 }
         # send request to add site to nautobot
-        suc = sot.send_request('addsite',
-                           config["sot"]["api_endpoint"],
-                           data,
-                           result)
+        result['sites'] = helper.send_request('addsite',
+                                              config["sot"]["api_endpoint"],
+                                              data)
 
         # check if site already exists
         # if so we update only if user set update to True
-        if not suc and update:
+        if result['sites']['success'] and update:
             update_data = {}
-            update_list = ['asn', 'time_zone', 'description', 'physical_address',
-                           'shipping_address', 'latitude', 'longitude', 'contact_name',
-                           'contact_phone', 'contact_email', 'comments']
+            update_list = ['asn',
+                           'time_zone',
+                           'description',
+                           'physical_address',
+                           'shipping_address',
+                           'latitude',
+                           'longitude',
+                           'contact_name',
+                           'contact_phone',
+                           'contact_email',
+                           'comments']
             for u in update_list:
                 if u in site:
                     update_data[update] = site[u]
 
-            sot.send_request('updatesite',
-                         config["sot"]["api_endpoint"],
-                         {'slug': site['slug'], 'config': update_data})
+            result['sites'] = helper.send_request('updatesite',
+                                                  config["sot"]["api_endpoint"],
+                                                  {'slug': site['slug'], 'config': update_data})
 
     # add manufacturers
     for m in defaults['manufacturers']:
         data = {'name': m['name'],
                 'slug': m['slug']}
-        suc = sot.send_request('addmanufacturer',
-                           config["sot"]["api_endpoint"],
-                           data)
+        result['manufacturers'] = helper.send_request('addmanufacturer',
+                                                      config["sot"]["api_endpoint"],
+                                                      data)
 
-        if not suc and args.update:
+        if not result['manufacturers']['success'] and args.update:
             update_data = {}
-            update_list = ['slug', 'name', 'description']
+            update_list = ['slug',
+                           'name',
+                           'description']
             for update in update_list:
                 if update in m:
                     update_data[update] = m[update]
-            sot.send_request('updatemanufacturer',
+            result['manufacturers']  = helper.send_request('updatemanufacturer',
                          config["sot"]["api_endpoint"],
                          {'slug': m['slug'], 'config': update_data})
 
@@ -131,19 +141,46 @@ def origin_git(config, update=False):
                 'slug': p['slug'],
                 'napalm_driver': driver
                 }
-        suc = sot.send_request('addplatform',
-                           config["sot"]["api_endpoint"],
-                           data)
+        result['platforms'] = helper.send_request('addplatform',
+                                                  config["sot"]["api_endpoint"],
+                                                  data)
 
-        if not suc and args.update:
+        if not result['platforms']['success'] and args.update:
             update_data = {}
-            update_list = ['slug', 'name', 'manufacturer', 'description', 'napalm_driver', 'napalm_args']
+            update_list = ['slug',
+                           'name',
+                           'manufacturer',
+                           'description',
+                           'napalm_driver',
+                           'napalm_args']
             for update in update_list:
                 if update in p:
                     update_data[update] = p[update]
-            sot.send_request('updateplatform',
-                         config["sot"]["api_endpoint"],
-                         {'slug': p['slug'], 'config': update_data})
+            result['platforms'] = sot.send_request('updateplatform',
+                                                   config["sot"]["api_endpoint"],
+                                                   {'slug': p['slug'], 'config': update_data})
+
+    # add device types
+    for d in defaults['devicetype']:
+        data = {'model': d['model'],
+                'slug': d['slug'],
+                'manufacturer': d['manufacturer']}
+        result['devicetype'] = helper.send_request('adddevicetype',
+                                                   config["sot"]["api_endpoint"],
+                                                   data)
+
+        if not result['devicetype']['success'] and args.update:
+            update_data = {}
+            update_list = ['slug',
+                           'model',
+                           'manufacturer']
+            for update in update_list:
+                if update in d:
+                    update_data[update] = d[update]
+            result['devicetype'] = helper.send_request('updatedevicetype',
+                                                       config["sot"]["api_endpoint"],
+                                                       {'slug': d['slug'],
+                                                        'config': update_data})
 
     print(json.dumps(result, indent=4))
 
