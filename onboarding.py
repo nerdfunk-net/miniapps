@@ -29,25 +29,33 @@ def inf_defaultdict():
 
 def onboarding_devices(result, args, device_fqdn, device_facts, raw_device_config, primary_defaults, onboarding_config):
 
-    devicetype = args.devicetype or primary_defaults['devicetype'],
+    # note: internally we use the slug for getting site, device_type or platform
+    site = args.site or primary_defaults['site']
+    role = args.role or primary_defaults['role']
+    manufacturer = args.manufacturer or primary_defaults['manufacturer']
+    platform = args.platform or primary_defaults['platform']
+    device_type = args.device_type or primary_defaults['device_type']
+
     if 'model' in device_facts:
-        devicetype = device_facts['model']
+        device_type = device_facts['model']
 
     # add device to sot
     data_add_device = {
         "name": device_fqdn,
-        "site": args.site or primary_defaults['site'],
-        "role": args.role or primary_defaults['role'],
-        "devicetype": devicetype,
-        "manufacturer": args.manufacturer or primary_defaults['manufacturer'],
-        "platform": args.manufacturer or primary_defaults['platform'],
-        "serial_number": device_facts["serial_number"],
-        "status": args.status or primary_defaults['status']
+        "config": {
+            "site": site.lower(),
+            "role": role.lower(),
+            "device_type": device_type.lower(),
+            "manufacturer": manufacturer.lower(),
+            "platform": platform.lower(),
+            "serial_number": device_facts["serial_number"],
+            "status": args.status or primary_defaults['status']
+        }
     }
 
     # send_request is our helper function to call the network abstraction layer
     logging.debug("adding device %s (%s) to sot" % (device_fqdn, device_facts['model']))
-    result[device_fqdn]['device'] = helper.send_request("adddevice",
+    result[device_fqdn]['device'] = helper.send_request("device",
                                                         onboarding_config["sot"]["api_endpoint"],
                                                         data_add_device)
 
@@ -352,7 +360,7 @@ def onboarding(result, device_facts, raw_device_config, onboarding_config, prefi
     primary_defaults = get_prefix_defaults(prefixe, primary_address)
 
     # check if we have all necessary defaults
-    list_def = ['site', 'role', 'devicetype', 'manufacturer', 'platform', 'status']
+    list_def = ['site', 'role', 'device_type', 'manufacturer', 'platform', 'status']
     for i in list_def:
         if i not in primary_defaults:
             logging.critical("%s missing. Please add %s to your default or set as arg" % (i, i))
@@ -577,7 +585,7 @@ if __name__ == "__main__":
     parser.add_argument('--site', type=str, required=False)
     parser.add_argument('--role', type=str, required=False)
     parser.add_argument('--manufacturer', type=str, required=False)
-    parser.add_argument('--devicetype', type=str, required=False)
+    parser.add_argument('--device_type', type=str, required=False)
     parser.add_argument('--platform', type=str, default="ios", required=False)
     parser.add_argument('--status', type=str, required=False)
 
