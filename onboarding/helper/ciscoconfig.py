@@ -270,7 +270,7 @@ class DeviceConfig:
             return self.__config["interfaces"][interface]
         return None
 
-    def get_interface_by_address(self, ip):
+    def get_interface_name_by_address(self, ip):
         for intf_name in self.__config["interfaces"]:
             if 'ipv4' in self.__config["interfaces"][intf_name]:
                 if 'address' in self.__config["interfaces"][intf_name]['ipv4']:

@@ -214,16 +214,19 @@ def onboarding_vlans(result, device_fqdn, args, ciscoconf, primary_defaults, onb
 def onboarding_primary_ip(result, device_fqdn, primary_address, ciscoconf, onboarding_config):
 
     # set primary IP/Interface of device
-    iface = ciscoconf.get_interface_by_address(primary_address)
+    interface_name = ciscoconf.get_interface_name_by_address(primary_address)
+    interface = ciscoconf.get_interface(interface_name)
     new_addr = {"primary_ip4": primary_address,
-                "interface": iface}
-
-    if new_addr is not None and iface is not None:
+                "interface": interface_name,
+                "interface_type": interface['type'],
+                "description": interface['description']
+                }
+    if new_addr is not None and interface_name is not None:
         data_set_primary = {
             "name": device_fqdn,
             "config": new_addr
         }
-        logging.debug("setting primary IP of %s in sot" % device_fqdn)
+        logging.debug("setting primary IP of %s to %s in sot" % (device_fqdn, primary_address))
         result[device_fqdn]['primary_ip'] = helper.send_request("updatedevice",
                                                                 onboarding_config["sot"]["api_endpoint"],
                                                                 data_set_primary)
