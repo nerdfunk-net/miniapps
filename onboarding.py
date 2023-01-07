@@ -14,9 +14,9 @@ from helper.ciscoconfig import DeviceConfig
 from helper import helper
 from helper import devicemanagement as dm
 from collections import defaultdict
-from businesslogic import config_context as bl_cc
-from businesslogic import interfaces as bl_int
-from businesslogic import device as bl_device
+from businesslogic import your_config_context as user_cc
+from businesslogic import your_interfaces as user_int
+from businesslogic import your_device as user_device
 
 # set default config file to your needs
 default_config_file = "./config.yaml"
@@ -51,8 +51,10 @@ def onboarding_devices(result, args, device_fqdn, device_facts, raw_device_confi
                                                         onboarding_config["sot"]["api_endpoint"],
                                                         data_add_device)
 
+    # call the user defined business logic
+    # the user defined bl can overwrite and modify the device_context
     logging.debug("calling business logic of device %s to sot" % device_fqdn)
-    bl_device.device(result, device_fqdn, raw_device_config, onboarding_config)
+    user_device.device(result, device_fqdn, raw_device_config, onboarding_config)
 
 
 def onboarding_interfaces(result, args, device_fqdn, primary_defaults, ciscoconf, onboarding_config):
@@ -155,9 +157,10 @@ def onboarding_interfaces(result, args, device_fqdn, primary_defaults, ciscoconf
                                                                     onboarding_config["sot"]["api_endpoint"],
                                                                     newconfig)
 
-        # call business logic
+        # call the user defined business logic
+        # the user defined bl can overwrite and modify the device_context
         logging.debug("calling business logic for %s/%s" % (device_fqdn, name))
-        bl_int.interface_tags(result,
+        user_int.interface_tags(result,
                               device_fqdn,
                               name,
                               ciscoconf.get_section("interface %s" % name),
@@ -266,11 +269,13 @@ def onboarding_config_contexts(result, device_fqdn, ciscoconf, raw_device_config
         for section in cfg_contexts[cfg_context]:
             device_context[cfg_context] = ciscoconf.get_section(section)
 
-    device_context = bl_cc.config_context(result,
-                                         device_fqdn,
-                                         device_context,
-                                         raw_device_config,
-                                         onboarding_config)
+    # call the user defined business logic
+    # the user defined bl can overwrite and modify the device_context
+    device_context = user_cc.config_context(result,
+                                            device_fqdn,
+                                            device_context,
+                                            raw_device_config,
+                                            onboarding_config)
 
     # the device_context is a dict but we need a yaml
     device_context_yaml = yaml.dump(dict(device_context),
