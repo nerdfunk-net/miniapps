@@ -69,7 +69,19 @@ def onboarding_interfaces(result, args, device_fqdn, primary_defaults, ciscoconf
 
     """
     loop through all interfaces and update/add item to sot
+
+    Args:
+        result:
+        args:
+        device_fqdn:
+        primary_defaults:
+        ciscoconf:
+        onboarding_config:
+
+    Returns:
+
     """
+
     interfaces = ciscoconf.get_interfaces()
     for name in interfaces:
 
@@ -81,13 +93,15 @@ def onboarding_interfaces(result, args, device_fqdn, primary_defaults, ciscoconf
             enabled = True
         data_add_interface = {
             "name": device_fqdn,
-            "interface": name,
-            "interfacetype": interface['type'],
-            "enabled": enabled,
-            "description": interface['description']
+            "config": {
+                "interface": name,
+                "interface_type": interface['type'],
+                "enabled": enabled,
+                "description": interface['description']
+            }
         }
         logging.debug("adding %s / %s to sot" % (device_fqdn, name))
-        result[device_fqdn][name] = helper.send_request("addinterface",
+        result[device_fqdn][name] = helper.send_request("interface",
                                                         onboarding_config["sot"]["api_endpoint"],
                                                         data_add_interface)
 
@@ -169,10 +183,10 @@ def onboarding_interfaces(result, args, device_fqdn, primary_defaults, ciscoconf
         # the user defined bl can overwrite and modify the device_context
         logging.debug("calling business logic for %s/%s" % (device_fqdn, name))
         user_int.interface_tags(result,
-                              device_fqdn,
-                              name,
-                              ciscoconf.get_section("interface %s" % name),
-                              onboarding_config)
+                                device_fqdn,
+                                name,
+                                ciscoconf.get_section("interface %s" % name),
+                                onboarding_config)
 
 
 def onboarding_vlans(result, device_fqdn, args, ciscoconf, primary_defaults, onboarding_config):
