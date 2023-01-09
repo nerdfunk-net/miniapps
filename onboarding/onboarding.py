@@ -14,9 +14,10 @@ from helper.ciscoconfig import DeviceConfig
 from helper import helper
 from helper import devicemanagement as dm
 from collections import defaultdict
-from businesslogic import your_config_context as user_cc
-from businesslogic import your_interfaces as user_int
-from businesslogic import your_device as user_device
+from onboarding import interfaces as onboarding_interfaces
+from onboarding import devices as onboarding_devices
+from onboarding import config_context as onboarding_config_context
+from onboarding import cables as onboarding_cables
 
 # set default config file to your needs
 default_config_file = "./config.yaml"
@@ -25,323 +26,6 @@ default_config_file = "./config.yaml"
 # this defaultdict enables us to use infinite numbers of arguments
 def inf_defaultdict():
     return defaultdict(inf_defaultdict)
-
-
-def onboarding_devices(result, args, device_fqdn, device_facts, raw_device_config, primary_defaults, onboarding_config):
-
-    # note: internally we use the slug for getting site, device_type or platform
-    site = args.site or primary_defaults['site']
-    role = args.role or primary_defaults['role']
-    manufacturer = args.manufacturer or primary_defaults['manufacturer']
-    platform = args.platform or primary_defaults['platform']
-    device_type = args.device_type or primary_defaults['device_type']
-
-    if 'model' in device_facts:
-        device_type = device_facts['model']
-
-    # add device to sot
-    data_add_device = {
-        "name": device_fqdn,
-        "config": {
-            "site": site.lower(),
-            "role": role.lower(),
-            "device_type": device_type.lower(),
-            "manufacturer": manufacturer.lower(),
-            "platform": platform.lower(),
-            "serial_number": device_facts["serial_number"],
-            "status": args.status or primary_defaults['status']
-        }
-    }
-
-    # send_request is our helper function to call the network abstraction layer
-    logging.debug("adding device %s (%s) to sot" % (device_fqdn, device_facts['model']))
-    result[device_fqdn]['device'] = helper.send_request("device",
-                                                        onboarding_config["sot"]["api_endpoint"],
-                                                        data_add_device)
-
-    # call the user defined business logic
-    # the user defined bl can overwrite and modify the device_context
-    logging.debug("calling business logic of device %s to sot" % device_fqdn)
-    user_device.device(result, device_fqdn, raw_device_config, onboarding_config)
-
-
-def onboarding_interfaces(result, args, device_fqdn, primary_defaults, ciscoconf, onboarding_config):
-
-    """
-    loop through all interfaces and update/add item to sot
-
-    Args:
-        result:
-        args:
-        device_fqdn:
-        primary_defaults:
-        ciscoconf:
-        onboarding_config:
-
-    Returns:
-
-    """
-
-    interfaces = ciscoconf.get_interfaces()
-    for name in interfaces:
-
-        # add interface to sot
-        interface = interfaces[name]
-        if 'shutdown' in interface:
-            enabled = False
-        else:
-            enabled = True
-        data_add_interface = {
-            "name": device_fqdn,
-            "config": {
-                "interface": name,
-                "interface_type": interface['type'],
-                "enabled": enabled,
-                "description": interface['description']
-            }
-        }
-        logging.debug("adding %s / %s to sot" % (device_fqdn, name))
-        result[device_fqdn][name] = helper.send_request("interface",
-                                                        onboarding_config["sot"]["api_endpoint"],
-                                                        data_add_interface)
-
-        # add IP address to interface
-        if ciscoconf.get_ipaddress(interface['name']) is not None:
-            addr = ciscoconf.get_ipaddress(interface['name'])
-            data_add_address = {
-                "name": device_fqdn,
-                "interface": name,
-                "address": addr
-            }
-            logging.debug("adding %s / %s to sot" % (device_fqdn, addr))
-            result[device_fqdn][name][addr] = helper.send_request("addaddress",
-                                                                  onboarding_config["sot"]["api_endpoint"],
-                                                                  data_add_address)
-
-        # check if we have Etherchannels
-        if 'lag' in interface:
-            lag_data = {"lag": "Port-channel%s" % interface["lag"]["group"]}
-            newconfig = {
-                "name": device_fqdn,
-                "interface": name,
-                "config": lag_data
-            }
-            logging.debug("adding etherchannels of %s to sot" % device_fqdn)
-            result[device_fqdn][name]['portchannel'] = helper.send_request("updateinterface",
-                                                                           onboarding_config["sot"]["api_endpoint"],
-                                                                           newconfig)
-        # setting switchport or trunk
-        if 'switchport' in interface:
-            mode = interface['switchport']['mode']
-            data = {}
-            if mode == 'access':
-                data = {"mode": "access",
-                        "untagged": interface['switchport']['vlan'],
-                        "site": args.site or primary_defaults['site']
-                        }
-            elif mode == 'tagged':
-                # this port is either a trunked with allowed vlans (mode: tagged)
-                # or a trunk with all vlans mode: tagged-all
-                # check if we have allowed vlans
-                if 'vlan' in interface['switchport'] and \
-                        'range' not in interface['switchport']:
-                    vlans = ",".join(interface['switchport']['vlan'])
-                    data = {"mode": "tagged",
-                            "tagged": vlans,
-                            "site": args.site or primary_defaults['site']
-                            }
-                else:
-                    data = {"mode": "tagged-all",
-                            "site": args.site or primary_defaults['site']
-                            }
-
-            if data is not None:
-                newconfig = {
-                    "name": device_fqdn,
-                    "interface": name,
-                    "config": data
-                }
-                logging.debug("adding switchport of %s to sot" % device_fqdn)
-                result[device_fqdn][name]['switchport'] = helper.send_request("updateinterface",
-                                                                              onboarding_config["sot"]["api_endpoint"],
-                                                                              newconfig)
-
-        # setting standard tags of interface
-        if 'tags' in interface:
-            tag_list = ",".join(interface['tags'])
-            newconfig = {
-                "name": device_fqdn,
-                "interface": name,
-                "config": {"tags": tag_list}
-            }
-            logging.debug("adding tags of %s to sot" % device_fqdn)
-            result[device_fqdn][name]['tags'] = helper.send_request("updateinterface",
-                                                                    onboarding_config["sot"]["api_endpoint"],
-                                                                    newconfig)
-
-        # call the user defined business logic
-        # the user defined bl can overwrite and modify the device_context
-        logging.debug("calling business logic for %s/%s" % (device_fqdn, name))
-        user_int.interface_tags(result,
-                                device_fqdn,
-                                name,
-                                ciscoconf.get_section("interface %s" % name),
-                                onboarding_config)
-
-
-def onboarding_vlans(result, device_fqdn, args, ciscoconf, primary_defaults, onboarding_config):
-
-    # add vlans
-    vlans,set_of_vlans = ciscoconf.get_vlans()
-    added_vlans = {}
-
-    for vid in vlans:
-        data_add_vlan = {
-            "vid": vid,
-            "name": vlans[vid]['name'],
-            "status": "active",
-            "site": args.site or primary_defaults['site']
-        }
-        logging.debug("adding vlan %s of %s to sot" % (vid, device_fqdn))
-        result[device_fqdn]['vlan'][vid] = helper.send_request("addvlan",
-                                                               onboarding_config["sot"]["api_endpoint"],
-                                                               data_add_vlan)
-        # create list of vlans added to the sot
-        if result[device_fqdn]['vlan'][vid]['success']:
-            added_vlans[vid] = True
-
-    # now add all vlans of the set that were not added to the sot before
-    for vid in set_of_vlans:
-        if vid not in added_vlans:
-            data_add_vlan = {
-                "vid": vid,
-                "name": "unknown vlan %s" % vid,
-                "status": "active",
-                "site": args.site or primary_defaults['site']
-            }
-            logging.debug("adding vlan %s of %s to sot" % (vid, device_fqdn))
-            result[device_fqdn]['vlan'][vid] = helper.send_request("addvlan",
-                                                                   onboarding_config["sot"]["api_endpoint"],
-                                                                   data_add_vlan)
-
-
-def onboarding_primary_ip(result, device_fqdn, primary_address, ciscoconf, onboarding_config):
-
-    # set primary IP/Interface of device
-    interface_name = ciscoconf.get_interface_name_by_address(primary_address)
-    interface = ciscoconf.get_interface(interface_name)
-    new_addr = {"primary_ip4": primary_address,
-                "interface": interface_name,
-                "interface_type": interface['type'],
-                "description": interface['description']
-                }
-    if new_addr is not None and interface_name is not None:
-        data_set_primary = {
-            "name": device_fqdn,
-            "config": new_addr
-        }
-        logging.debug("setting primary IP of %s to %s in sot" % (device_fqdn, primary_address))
-        result[device_fqdn]['primary_ip'] = helper.send_request("updatedevice",
-                                                                onboarding_config["sot"]["api_endpoint"],
-                                                                data_set_primary)
-    else:
-        result[device_fqdn]['primary_ip'] = \
-            "no primary interface found; device is accessible only with hostname/ip you used"
-
-
-def onboarding_cables(result, conn, device_facts, onboarding_config):
-
-    # get layer2 neighbors
-    response = conn.send_command("show cdp neighbors")
-    r = response.genie_parse_output()
-
-    for line in r['cdp']['index']:
-        device_id = r['cdp']['index'][line]['device_id']
-        local_interface = r['cdp']['index'][line]['local_interface']
-        port_id = r['cdp']['index'][line]['port_id']
-        logging.debug("adding %s %s %s %s" % (device_facts['fqdn'],
-                                              local_interface,
-                                              device_id,
-                                              port_id))
-
-        connection = {
-            "side_a": device_facts['fqdn'],
-            "side_b": device_id,
-            "interface_a": local_interface,
-            "interface_b": port_id,
-            "cable_type": "cat5e"
-        }
-        newconfig = {
-            "name": device_facts['fqdn'],
-            "config": connection
-        }
-        result['cables'][line] = helper.send_request("updateconnection",
-                                               onboarding_config["sot"]["api_endpoint"],
-                                               newconfig)
-
-
-def onboarding_config_contexts(result, device_fqdn, ciscoconf, raw_device_config, onboarding_config):
-
-    cfg_contexts = helper.get_value_from_dict(onboarding_config,['onboarding','config_context'])
-    device_context = defaultdict(dict)
-
-    # check if we have some config_context rules configured
-    if cfg_contexts is None:
-        result[device_fqdn]['config_context'] = "no config context configured in config"
-        return
-
-    for cfg_context in cfg_contexts:
-        for section in cfg_contexts[cfg_context]:
-            device_context[cfg_context] = ciscoconf.get_section(section)
-
-    # call the user defined business logic
-    # the user defined bl can overwrite and modify the device_context
-    device_context = user_cc.config_context(result,
-                                            device_fqdn,
-                                            device_context,
-                                            raw_device_config,
-                                            onboarding_config)
-
-    # the device_context is a dict but we need a yaml
-    device_context_yaml = yaml.dump(dict(device_context),
-                                    allow_unicode=True,
-                                    default_flow_style=False)
-
-    config = {
-        'repo': 'config_contexts',
-        'filename': device_fqdn,
-        'subdir': "devices",
-        'content': "%s\n%s" % ("---", device_context_yaml),
-        'action': 'overwrite',
-        'pull': False,
-    }
-
-    newconfig = {
-        "config": config
-    }
-
-    result[device_fqdn]['config_context'] = helper.send_request("editfile",
-                                                                onboarding_config["sot"]["api_endpoint"],
-                                                                newconfig)
-
-
-def onboarding_backup_config(result, device_fqdn, raw_device_config, onboarding_config):
-
-    config = {
-        'repo': 'config_backup',
-        'filename': device_fqdn,
-        'content': raw_device_config,
-        'action': 'overwrite',
-        'pull': False,
-    }
-
-    newconfig = {
-        "config": config
-    }
-
-    result[device_fqdn]['backup'] = helper.send_request("editfile",
-                                                        onboarding_config["sot"]["api_endpoint"],
-                                                        newconfig)
 
 
 def onboarding(result, device_facts, raw_device_config, onboarding_config, prefixe):
@@ -390,52 +74,61 @@ def onboarding(result, device_facts, raw_device_config, onboarding_config, prefi
             for tag in onboarding_config['onboarding']['tags']['interfaces']:
                 ciscoconf.tag_interfaces(tag, onboarding_config['onboarding']['tags']['interfaces'][tag])
 
+    # now lets start the onboarding work
+    # first of all import the device to our sot
     if args.onboarding:
-        onboarding_devices(result,
-                           args,
-                           device_fqdn,
-                           device_facts,
-                           raw_device_config,
-                           primary_defaults,
-                           onboarding_config)
+        onboarding_devices.to_sot(result,
+                                  args,
+                                  device_fqdn,
+                                  device_facts,
+                                  raw_device_config,
+                                  primary_defaults,
+                                  onboarding_config)
 
     # we add the vlans before adding the interface
     # because some interfaces may be access vlans
     if args.vlans:
-        onboarding_vlans(result,
-                         device_fqdn,
-                         args,
-                         ciscoconf,
-                         primary_defaults,
-                         onboarding_config)
+        onboarding_interfaces.vlans(result,
+                                    device_fqdn,
+                                    args,
+                                    ciscoconf,
+                                    primary_defaults,
+                                    onboarding_config)
 
+    # now add interfaces to sot
     if args.interfaces:
-        onboarding_interfaces(result,
-                              args,
-                              device_fqdn,
-                              primary_defaults,
-                              ciscoconf,
-                              onboarding_config)
+        onboarding_interfaces.to_sot(result,
+                                     args,
+                                     device_fqdn,
+                                     primary_defaults,
+                                     ciscoconf,
+                                     onboarding_config)
 
+    # we are now able to set the primary IP
+    # the primary IP requires the device (of course) and the
+    # interface the IP address if configured on
     if args.onboarding:
-        onboarding_primary_ip(result,
-                              device_fqdn,
-                              primary_address,
-                              ciscoconf,
-                              onboarding_config)
+        onboarding_devices.primary_ip(result,
+                                      device_fqdn,
+                                      primary_address,
+                                      ciscoconf,
+                                      onboarding_config)
 
+    # now the most import part: the config_context
+    # do your own business logic in the "businesslogic" subdir
     if args.config_context:
-        onboarding_config_contexts(result,
-                                   device_fqdn,
-                                   ciscoconf,
-                                   raw_device_config,
-                                   onboarding_config)
+        onboarding_config_context.to_sot(result,
+                                         device_fqdn,
+                                         ciscoconf,
+                                         raw_device_config,
+                                         onboarding_config)
 
+    # at last do a backup of the running config
     if args.backup:
-        onboarding_backup_config(result,
-                                 device_fqdn,
-                                 raw_device_config,
-                                 onboarding_config)
+        onboarding_devices.backup_config(result,
+                                         device_fqdn,
+                                         raw_device_config,
+                                         onboarding_config)
 
     return result
 
@@ -756,10 +449,10 @@ if __name__ == "__main__":
                                       args.port)
             device_facts = dm.get_facts(conn)
             device_facts['args.device'] = device
-            onboarding_cables(result,
-                              conn,
-                              device_facts,
-                              onboarding_config)
+            onboarding_cables.to_sot(result,
+                                     conn,
+                                     device_facts,
+                                     onboarding_config)
             conn.close()
 
     target = helper.get_value_from_dict(onboarding_config,
